@@ -3,7 +3,13 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { StudentForm } from '../../components/StudentForm';
-import { createUser, enrollUser } from '../../lib/moodle';
+import { createUser } from '../../lib/moodle';
+
+interface ActivityDetails {
+  studentUsername?: string;
+  studentName?: string;
+  moodleUserId?: number;
+}
 
 export default function StudentsPage() {
   const { user, isLoading, token } = useAuth();
@@ -21,7 +27,7 @@ export default function StudentsPage() {
     }
   }, [user, isLoading]);
 
-  const logActivity = async (action: string, details: any) => {
+  const logActivity = async (action: string, details: ActivityDetails) => {
     try {
       await fetch('/api/activities/log', {
         method: 'POST',

@@ -6,6 +6,12 @@ import { CourseList } from '../../components/CourseList';
 import { getCourses, enrollUser } from '../../lib/moodle';
 import { MoodleCourse } from '../../types/moodle';
 
+interface ActivityDetails {
+  studentUsername?: string;
+  courseId?: number;
+  courseName?: string;
+}
+
 export default function CoursesPage() {
   const { user, isLoading, token } = useAuth();
   const [isAuthorized, setIsAuthorized] = useState(false);
@@ -24,7 +30,7 @@ export default function CoursesPage() {
     }
   }, [user, isLoading]);
 
-  const logActivity = async (action: string, details: any) => {
+  const logActivity = async (action: string, details: ActivityDetails) => {
     try {
       await fetch('/api/activities/log', {
         method: 'POST',
@@ -49,7 +55,7 @@ export default function CoursesPage() {
       } else {
         setError(response.error || 'Error al cargar los cursos');
       }
-    } catch (err) {
+    } catch {
       setError('Error al cargar los cursos');
     } finally {
       setLoading(false);

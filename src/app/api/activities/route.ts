@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../lib/mongodb';
 import Activity from '../../../models/Activity';
-import User from '../../../models/User';
 import { verifyToken } from '../../../lib/jwt';
+
+interface ActivityFilter {
+  'userId.role'?: { $ne: string };
+  userId?: string;
+  action?: string;
+  createdAt?: {
+    $gte?: Date;
+    $lte?: Date;
+  };
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -37,7 +46,7 @@ export async function GET(request: NextRequest) {
     const endDate = searchParams.get('endDate');
 
     // Build filter - exclude admin activities
-    const filter: any = {
+    const filter: ActivityFilter = {
       'userId.role': { $ne: 'admin' } // Exclude admin activities
     };
     

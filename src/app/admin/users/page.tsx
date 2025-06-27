@@ -1,10 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
-import { Select } from '../../../components/ui/Select';
 
 interface User {
   _id: string;
@@ -33,15 +32,7 @@ export default function AdminUsersPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  useEffect(() => {
-    if (user?.role !== 'admin') {
-      window.location.href = '/admin/login';
-      return;
-    }
-    fetchUsers();
-  }, [user]);
-
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       const response = await fetch('/api/users', {
         headers: {
@@ -57,7 +48,15 @@ export default function AdminUsersPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    if (user?.role !== 'admin') {
+      window.location.href = '/admin/login';
+      return;
+    }
+    fetchUsers();
+  }, [user, fetchUsers]);
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,7 +90,7 @@ export default function AdminUsersPage() {
       } else {
         setError(data.error || 'Error al crear usuario');
       }
-    } catch (error) {
+    } catch {
       setError('Error al crear usuario');
     }
   };

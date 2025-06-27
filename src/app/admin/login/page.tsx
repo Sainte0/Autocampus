@@ -24,7 +24,7 @@ export default function AdminLoginPage() {
       } else {
         setError('Credenciales de administrador inválidas');
       }
-    } catch (err) {
+    } catch {
       setError('Error al iniciar sesión');
     } finally {
       setIsLoading(false);

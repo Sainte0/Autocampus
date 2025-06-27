@@ -9,6 +9,13 @@ interface CourseListProps {
   onEnroll: (courseId: number, username: string) => Promise<{ success: boolean; error?: string }>;
 }
 
+interface FoundUser {
+  username: string;
+  firstname: string;
+  lastname: string;
+  email: string;
+}
+
 // Función para extraer las siglas del nombre del curso
 const extractCourseAcronym = (shortname: string): string => {
   // Buscar patrones al inicio de la descripción como "DCYC3-24/09/2024", "AMJ1-LUN-10/03/2025", "EEA1_Mie15.30HS_29/01/2025", "eba1_25/02/2025"
@@ -69,7 +76,7 @@ export function CourseList({ courses, onEnroll }: CourseListProps) {
   const [selectedAcronym, setSelectedAcronym] = useState<string>('all');
   const [showOnlyActive, setShowOnlyActive] = useState(true);
   const [searchingUsers, setSearchingUsers] = useState(false);
-  const [foundUsers, setFoundUsers] = useState<any[]>([]);
+  const [foundUsers, setFoundUsers] = useState<FoundUser[]>([]);
 
   // Extraer siglas únicas de los cursos
   const courseAcronyms = Array.from(new Set(
@@ -165,7 +172,7 @@ export function CourseList({ courses, onEnroll }: CourseListProps) {
     }
   };
 
-  const selectUser = (user: any) => {
+  const selectUser = (user: FoundUser) => {
     setUsername(user.username);
     setFoundUsers([]);
   };

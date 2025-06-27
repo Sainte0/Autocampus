@@ -24,7 +24,7 @@ export default function LoginPage() {
       } else {
         setError('Credenciales inválidas');
       }
-    } catch (err) {
+    } catch {
       setError('Error al iniciar sesión');
     } finally {
       setIsLoading(false);

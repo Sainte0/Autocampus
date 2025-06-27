@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
@@ -52,16 +52,7 @@ export default function AdminActivitiesPage() {
     pages: 0,
   });
 
-  useEffect(() => {
-    if (user?.role !== 'admin') {
-      window.location.href = '/admin/login';
-      return;
-    }
-    fetchUsers();
-    fetchActivities();
-  }, [user, pagination.page, filters]);
-
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       const response = await fetch('/api/users/list', {
         headers: {
@@ -75,9 +66,9 @@ export default function AdminActivitiesPage() {
     } catch (error) {
       console.error('Error fetching users:', error);
     }
-  };
+  }, [token]);
 
-  const fetchActivities = async () => {
+  const fetchActivities = useCallback(async () => {
     try {
       const params = new URLSearchParams({
         page: pagination.page.toString(),
@@ -103,7 +94,16 @@ export default function AdminActivitiesPage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [token, pagination.page, pagination.limit, filters]);
+
+  useEffect(() => {
+    if (user?.role !== 'admin') {
+      window.location.href = '/admin/login';
+      return;
+    }
+    fetchUsers();
+    fetchActivities();
+  }, [user, fetchUsers, fetchActivities]);
 
   const getActionLabel = (action: string) => {
     switch (action) {

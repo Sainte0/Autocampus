@@ -3,7 +3,11 @@ import { MoodleCourse, MoodleUser, CreateUserRequest, EnrollUserRequest, ApiResp
 const MOODLE_API_URL = process.env.NEXT_PUBLIC_MOODLE_API_URL;
 const MOODLE_TOKEN = process.env.NEXT_PUBLIC_MOODLE_TOKEN;
 
-async function callMoodleApi<T>(wsfunction: string, params: Record<string, any> = {}): Promise<ApiResponse<T>> {
+interface MoodleApiParams {
+  [key: string]: string | number | boolean | Array<string | number | boolean> | Array<Record<string, string | number | boolean>>;
+}
+
+async function callMoodleApi<T>(wsfunction: string, params: MoodleApiParams = {}): Promise<ApiResponse<T>> {
   const queryParams = new URLSearchParams({
     wstoken: MOODLE_TOKEN || '',
     wsfunction,
@@ -295,7 +299,7 @@ export async function verifyUser(username: string): Promise<ApiResponse<MoodleUs
   }
 }
 
-export async function enrollUser(enrollmentData: EnrollUserRequest): Promise<ApiResponse<any>> {
+export async function enrollUser(enrollmentData: EnrollUserRequest): Promise<ApiResponse<{ success: boolean }>> {
   console.log('Iniciando proceso de inscripción para:', enrollmentData);
   
   // Primero verificar si el usuario existe
@@ -356,7 +360,7 @@ export async function enrollUser(enrollmentData: EnrollUserRequest): Promise<Api
     console.log('Enviando parámetros de inscripción:', JSON.stringify(enrollmentParams, null, 2));
     
     // Intentar con un formato alternativo si el primero falla
-    const response = await callMoodleApi('enrol_manual_enrol_users', enrollmentParams);
+    const response = await callMoodleApi<{ success: boolean }>('enrol_manual_enrol_users', enrollmentParams);
     console.log('Respuesta de Moodle para inscripción:', JSON.stringify(response, null, 2));
     
     if (!response.success) {
@@ -373,7 +377,7 @@ export async function enrollUser(enrollmentData: EnrollUserRequest): Promise<Api
         'enrolments[0][timeend]': 0
       };
       
-      const simpleResponse = await callMoodleApi('enrol_manual_enrol_users', simpleParams);
+      const simpleResponse = await callMoodleApi<{ success: boolean }>('enrol_manual_enrol_users', simpleParams);
       console.log('Respuesta con formato simple:', JSON.stringify(simpleResponse, null, 2));
       
       if (!simpleResponse.success) {
@@ -399,7 +403,7 @@ export async function enrollUser(enrollmentData: EnrollUserRequest): Promise<Api
     console.log('Inscripción exitosa');
     return {
       success: true,
-      data: response.data,
+      data: { success: true },
     };
   } catch (error) {
     console.error('Error en la inscripción:', error);
