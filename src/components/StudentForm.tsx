@@ -9,6 +9,7 @@ interface StudentFormProps {
     lastname: string;
     email: string;
     password: string;
+    document: string;
   }) => Promise<void>;
 }
 
@@ -31,7 +32,10 @@ export function StudentForm({ onSubmit }: StudentFormProps) {
     setError(null);
 
     try {
-      await onSubmit(formData);
+      await onSubmit({
+        ...formData,
+        document: formData.document,
+      });
       setFormData({
         username: '',
         firstname: '',

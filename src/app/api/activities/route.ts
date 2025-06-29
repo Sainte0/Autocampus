@@ -4,9 +4,9 @@ import Activity from '../../../models/Activity';
 import { verifyToken } from '../../../lib/jwt';
 
 interface ActivityFilter {
-  'userId.role'?: { $ne: string };
   userId?: string;
   action?: string;
+  status?: string;
   createdAt?: {
     $gte?: Date;
     $lte?: Date;
@@ -42,16 +42,16 @@ export async function GET(request: NextRequest) {
     const limit = parseInt(searchParams.get('limit') || '50');
     const userId = searchParams.get('userId');
     const action = searchParams.get('action');
+    const status = searchParams.get('status');
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
 
-    // Build filter - exclude admin activities
-    const filter: ActivityFilter = {
-      'userId.role': { $ne: 'admin' } // Exclude admin activities
-    };
+    // Build filter - simpler approach
+    const filter: ActivityFilter = {};
     
     if (userId) filter.userId = userId;
     if (action) filter.action = action;
+    if (status) filter.status = status;
     if (startDate || endDate) {
       filter.createdAt = {};
       if (startDate) filter.createdAt.$gte = new Date(startDate);
@@ -63,19 +63,13 @@ export async function GET(request: NextRequest) {
 
     // Get activities with pagination and populate user info
     const activities = await Activity.find(filter)
-      .populate({
-        path: 'userId',
-        select: 'username firstName lastName role',
-        match: { role: { $ne: 'admin' } } // Double check to exclude admin users
-      })
+      .populate('userId', 'username firstName lastName role email')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
 
-    // Filter out any activities where user is admin (in case populate didn't work)
-    const filteredActivities = activities.filter(activity => 
-      activity.userId && activity.userId.role !== 'admin'
-    );
+    // Don't filter out admin activities - show all activities
+    const filteredActivities = activities;
 
     // Get total count
     const total = await Activity.countDocuments(filter);

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../../lib/mongodb';
-import Activity from '../../../../models/Activity';
+import User from '../../../../models/User';
 import { verifyToken } from '../../../../lib/jwt';
+import mongoose from 'mongoose';
 
 export async function POST(request: NextRequest) {
   try {
@@ -26,7 +27,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { action, details } = await request.json();
+    // Get user details from database
+    const user = await User.findById(payload.userId);
+    if (!user) {
+      return NextResponse.json(
+        { error: 'User not found' },
+        { status: 404 }
+      );
+    }
+
+    const { action, details, status = 'success', errorMessage } = await request.json();
 
     if (!action) {
       return NextResponse.json(
@@ -35,19 +45,31 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create activity log
-    const activity = await Activity.create({
+    // Create activity data
+    const activityData = {
       userId: payload.userId,
       userUsername: payload.username,
+      userFullName: `${user.firstName} ${user.lastName}`,
       action,
       details: details || {},
-      ipAddress: request.headers.get('x-forwarded-for') || 'unknown',
-      userAgent: request.headers.get('user-agent'),
-    });
+      status,
+      errorMessage,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    // Use direct MongoDB insertion
+    const db = mongoose.connection.db;
+    if (!db) {
+      throw new Error('Database connection not available');
+    }
+
+    const result = await db.collection('activities').insertOne(activityData);
+    const createdActivity = await db.collection('activities').findOne({ _id: result.insertedId });
 
     return NextResponse.json({
       success: true,
-      activity,
+      activity: createdActivity,
     });
   } catch (error) {
     console.error('Log activity error:', error);

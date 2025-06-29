@@ -8,6 +8,11 @@ import { createUser } from '../../lib/moodle';
 interface ActivityDetails {
   studentUsername?: string;
   studentName?: string;
+  studentEmail?: string;
+  studentFirstName?: string;
+  studentLastName?: string;
+  studentDocument?: string;
+  studentPassword?: string;
   moodleUserId?: number;
 }
 
@@ -27,16 +32,20 @@ export default function StudentsPage() {
     }
   }, [user, isLoading]);
 
-  const logActivity = async (action: string, details: ActivityDetails) => {
+  const logActivity = async (action: string, details: ActivityDetails, status: 'success' | 'error' = 'success', errorMessage?: string) => {
     try {
-      await fetch('/api/activities/log', {
+      const response = await fetch('/api/activities/log', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ action, details }),
+        body: JSON.stringify({ action, details, status, errorMessage }),
       });
+
+      if (!response.ok) {
+        console.error('Log activity failed');
+      }
     } catch (error) {
       console.error('Error logging activity:', error);
     }
@@ -48,6 +57,7 @@ export default function StudentsPage() {
     lastname: string;
     email: string;
     password: string;
+    document?: string;
   }) => {
     setError(null);
     setSuccess(null);
@@ -57,15 +67,33 @@ export default function StudentsPage() {
       const createResponse = await createUser(data);
       
       if (!createResponse.success) {
+        // Log the failed activity
+        await logActivity('create_student', {
+          studentUsername: data.username,
+          studentName: `${data.firstname} ${data.lastname}`,
+          studentEmail: data.email,
+          studentFirstName: data.firstname,
+          studentLastName: data.lastname,
+          studentDocument: data.document || '',
+          studentPassword: data.password,
+        }, 'error', createResponse.error);
+
         throw new Error(createResponse.error || 'Error al crear el estudiante');
       }
 
-      // Log the activity
-      await logActivity('create_student', {
+      // Log the successful activity
+      const logDetails = {
         studentUsername: data.username,
         studentName: `${data.firstname} ${data.lastname}`,
+        studentEmail: data.email,
+        studentFirstName: data.firstname,
+        studentLastName: data.lastname,
+        studentDocument: data.document || '',
+        studentPassword: data.password,
         moodleUserId: createResponse.data?.[0]?.id,
-      });
+      };
+      
+      await logActivity('create_student', logDetails, 'success');
 
       setSuccess(`Estudiante ${data.firstname} ${data.lastname} creado exitosamente`);
       

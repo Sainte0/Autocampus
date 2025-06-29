@@ -3,13 +3,20 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { CourseList } from '../../components/CourseList';
-import { getCourses, enrollUser } from '../../lib/moodle';
+import { getCourses, enrollUser, searchUsers } from '../../lib/moodle';
 import { MoodleCourse } from '../../types/moodle';
 
 interface ActivityDetails {
   studentUsername?: string;
+  studentName?: string;
+  studentEmail?: string;
+  studentFirstName?: string;
+  studentLastName?: string;
+  studentDocument?: string;
+  studentPassword?: string;
   courseId?: number;
   courseName?: string;
+  courseShortName?: string;
 }
 
 export default function CoursesPage() {
@@ -30,7 +37,7 @@ export default function CoursesPage() {
     }
   }, [user, isLoading]);
 
-  const logActivity = async (action: string, details: ActivityDetails) => {
+  const logActivity = async (action: string, details: ActivityDetails, status: 'success' | 'error' = 'success', errorMessage?: string) => {
     try {
       await fetch('/api/activities/log', {
         method: 'POST',
@@ -38,7 +45,7 @@ export default function CoursesPage() {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ action, details }),
+        body: JSON.stringify({ action, details, status, errorMessage }),
       });
     } catch (error) {
       console.error('Error logging activity:', error);
@@ -66,6 +73,33 @@ export default function CoursesPage() {
     try {
       const course = courses.find(c => c.id === courseId);
       
+      // Obtener información completa del estudiante desde los logs de actividades
+      let studentInfo = null;
+      try {
+        const studentResponse = await fetch(`/api/activities/student-info?username=${username}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+        
+        if (studentResponse.ok) {
+          const studentData = await studentResponse.json();
+          if (studentData.success) {
+            studentInfo = studentData.student;
+          }
+        }
+      } catch (error) {
+        console.error('Error getting student info:', error);
+      }
+      
+      // Si no se pudo obtener la información completa, buscar en Moodle como fallback
+      if (!studentInfo) {
+        const userResponse = await searchUsers(username);
+        if (userResponse.success && userResponse.data && userResponse.data.length > 0) {
+          studentInfo = userResponse.data[0];
+        }
+      }
+      
       const enrollmentResponse = await enrollUser({
         username,
         courseid: courseId,
@@ -73,16 +107,67 @@ export default function CoursesPage() {
       });
 
       if (enrollmentResponse.success) {
-        // Log the enrollment activity
+        // Log the successful enrollment activity with complete student info
         await logActivity('enroll_student', {
           studentUsername: username,
+          studentName: studentInfo?.name || studentInfo?.firstname ? `${studentInfo.firstname} ${studentInfo.lastname}` : username,
+          studentEmail: studentInfo?.email || '',
+          studentFirstName: studentInfo?.firstName || studentInfo?.firstname || '',
+          studentLastName: studentInfo?.lastName || studentInfo?.lastname || '',
+          studentDocument: studentInfo?.document || '',
+          studentPassword: studentInfo?.password || '',
           courseId: courseId,
           courseName: course?.fullname || `Curso ${courseId}`,
-        });
+          courseShortName: course?.shortname,
+        }, 'success');
+
+        // Create receipt data and redirect to receipt page
+        const receiptData = {
+          studentUsername: username,
+          studentName: studentInfo?.name || studentInfo?.firstname ? `${studentInfo.firstname} ${studentInfo.lastname}` : username,
+          studentEmail: studentInfo?.email || '',
+          studentFirstName: studentInfo?.firstName || studentInfo?.firstname || '',
+          studentLastName: studentInfo?.lastName || studentInfo?.lastname || '',
+          studentDocument: studentInfo?.document || '',
+          studentPassword: studentInfo?.password || '',
+          courseId: courseId,
+          courseName: course?.fullname || `Curso ${courseId}`,
+          courseShortName: course?.shortname || '',
+          enrollmentDate: new Date().toISOString(),
+          enrollmentId: `ENR-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        };
+
+        // Redirect to receipt page with data
+        const encodedData = encodeURIComponent(JSON.stringify(receiptData));
+        window.location.href = `/receipt?data=${encodedData}`;
+      } else {
+        // Log the failed enrollment activity
+        await logActivity('enroll_student', {
+          studentUsername: username,
+          studentName: studentInfo?.name || studentInfo?.firstname ? `${studentInfo.firstname} ${studentInfo.lastname}` : username,
+          studentEmail: studentInfo?.email || '',
+          studentFirstName: studentInfo?.firstName || studentInfo?.firstname || '',
+          studentLastName: studentInfo?.lastName || studentInfo?.lastname || '',
+          studentDocument: studentInfo?.document || '',
+          studentPassword: studentInfo?.password || '',
+          courseId: courseId,
+          courseName: course?.fullname || `Curso ${courseId}`,
+          courseShortName: course?.shortname,
+        }, 'error', enrollmentResponse.error);
       }
 
       return enrollmentResponse;
     } catch (error) {
+      const course = courses.find(c => c.id === courseId);
+      
+      // Log the error activity
+      await logActivity('enroll_student', {
+        studentUsername: username,
+        courseId: courseId,
+        courseName: course?.fullname || `Curso ${courseId}`,
+        courseShortName: course?.shortname,
+      }, 'error', error instanceof Error ? error.message : 'Error desconocido');
+
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Error al inscribir al usuario'

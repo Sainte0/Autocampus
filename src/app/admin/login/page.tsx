@@ -105,6 +105,22 @@ export default function AdminLoginPage() {
                 'Acceder como Administrador'
               )}
             </button>
+
+            <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
+              <div className="flex items-start">
+                <svg className="w-5 h-5 text-purple-500 mr-2 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                  <p className="text-purple-700 dark:text-purple-300 text-sm font-medium mb-1">
+                    Sesión persistente
+                  </p>
+                  <p className="text-purple-600 dark:text-purple-400 text-xs">
+                    Tu sesión de administrador se mantendrá activa por 24 horas. No necesitarás volver a iniciar sesión hasta que cierres el navegador o pasen 24 horas.
+                  </p>
+                </div>
+              </div>
+            </div>
           </form>
 
           <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">

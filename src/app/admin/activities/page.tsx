@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../contexts/AuthContext';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
+import { ActivityNavigation } from '../../../components/ActivityNavigation';
 
 interface User {
   _id: string;
@@ -21,27 +23,40 @@ interface Activity {
     lastName: string;
   };
   userUsername: string;
-  action: 'create_student' | 'enroll_student' | 'login' | 'logout';
+  userFullName: string;
+  action: 'create_student' | 'enroll_student' | 'update_student' | 'delete_student' | 'unenroll_student';
   details: {
     studentUsername?: string;
     studentName?: string;
+    studentEmail?: string;
+    studentFirstName?: string;
+    studentLastName?: string;
+    studentDocument?: string;
+    studentPassword?: string;
     courseId?: number;
     courseName?: string;
+    courseShortName?: string;
     moodleUserId?: number;
+    oldData?: Record<string, unknown>;
+    newData?: Record<string, unknown>;
+    reason?: string;
   };
-  ipAddress?: string;
-  userAgent?: string;
+  status: 'success' | 'error' | 'pending';
+  errorMessage?: string;
   createdAt: string;
+  updatedAt: string;
 }
 
 export default function AdminActivitiesPage() {
   const { user, token } = useAuth();
+  const router = useRouter();
   const [activities, setActivities] = useState<Activity[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filters, setFilters] = useState({
     userId: '',
     action: '',
+    status: '',
     startDate: '',
     endDate: '',
   });
@@ -51,6 +66,7 @@ export default function AdminActivitiesPage() {
     total: 0,
     pages: 0,
   });
+  const [isClearing, setIsClearing] = useState(false);
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -63,8 +79,8 @@ export default function AdminActivitiesPage() {
       if (data.success) {
         setUsers(data.users);
       }
-    } catch (error) {
-      console.error('Error fetching users:', error);
+    } catch {
+      console.error('Error fetching users');
     }
   }, [token]);
 
@@ -75,6 +91,7 @@ export default function AdminActivitiesPage() {
         limit: pagination.limit.toString(),
         ...(filters.userId && { userId: filters.userId }),
         ...(filters.action && { action: filters.action }),
+        ...(filters.status && { status: filters.status }),
         ...(filters.startDate && { startDate: filters.startDate }),
         ...(filters.endDate && { endDate: filters.endDate }),
       });
@@ -89,8 +106,8 @@ export default function AdminActivitiesPage() {
         setActivities(data.activities);
         setPagination(data.pagination);
       }
-    } catch (error) {
-      console.error('Error fetching activities:', error);
+    } catch {
+      console.error('Error fetching activities');
     } finally {
       setIsLoading(false);
     }
@@ -111,10 +128,12 @@ export default function AdminActivitiesPage() {
         return 'Crear Alumno';
       case 'enroll_student':
         return 'Inscribir Alumno';
-      case 'login':
-        return 'Iniciar Sesión';
-      case 'logout':
-        return 'Cerrar Sesión';
+      case 'update_student':
+        return 'Actualizar Alumno';
+      case 'delete_student':
+        return 'Eliminar Alumno';
+      case 'unenroll_student':
+        return 'Desinscribir Alumno';
       default:
         return action;
     }
@@ -123,15 +142,77 @@ export default function AdminActivitiesPage() {
   const getActionColor = (action: string) => {
     switch (action) {
       case 'create_student':
-        return 'bg-green-100 text-green-800';
+        return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
       case 'enroll_student':
-        return 'bg-blue-100 text-blue-800';
-      case 'login':
-        return 'bg-yellow-100 text-yellow-800';
-      case 'logout':
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
+      case 'update_student':
+        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
+      case 'delete_student':
+        return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
+      case 'unenroll_student':
+        return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'success':
+        return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
+      case 'error':
+        return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
+      case 'pending':
+        return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
+      default:
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200';
+    }
+  };
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'success':
+        return 'Exitoso';
+      case 'error':
+        return 'Error';
+      case 'pending':
+        return 'Pendiente';
+      default:
+        return status;
+    }
+  };
+
+  const handleViewDetails = (activityId: string) => {
+    router.push(`/admin/activities/${activityId}`);
+  };
+
+  const handleClearAllActivities = async () => {
+    if (!confirm('¿Estás seguro de que quieres eliminar TODOS los registros de actividades? Esta acción no se puede deshacer.')) {
+      return;
+    }
+
+    setIsClearing(true);
+    try {
+      const response = await fetch('/api/activities/clear', {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        alert(data.message);
+        // Refresh the activities list
+        fetchActivities();
+      } else {
+        alert('Error al limpiar las actividades: ' + data.error);
+      }
+    } catch (error) {
+      alert('Error al limpiar las actividades');
+      console.error('Error clearing activities:', error);
+    } finally {
+      setIsClearing(false);
     }
   };
 
@@ -152,14 +233,39 @@ export default function AdminActivitiesPage() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">Registro de Actividades de Usuarios</h1>
           <p className="text-gray-600 dark:text-gray-300">
-            Historial de acciones realizadas por usuarios del sistema (excluyendo administradores)
+            Historial completo de acciones realizadas por usuarios del sistema con detalles técnicos
           </p>
+        </div>
+
+        <ActivityNavigation />
+
+        {/* Clear All Activities Button */}
+        <div className="mb-6 flex justify-end">
+          <button
+            onClick={handleClearAllActivities}
+            disabled={isClearing}
+            className="bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white px-4 py-2 rounded-lg font-medium transition-colors duration-200 flex items-center space-x-2"
+          >
+            {isClearing ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                <span>Limpiando...</span>
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                <span>Limpiar Todas las Actividades</span>
+              </>
+            )}
+          </button>
         </div>
 
         {/* Filters */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-8">
           <h2 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Filtros</h2>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
                 Usuario
@@ -189,8 +295,24 @@ export default function AdminActivitiesPage() {
                 <option value="">Todas las acciones</option>
                 <option value="create_student">Crear Alumno</option>
                 <option value="enroll_student">Inscribir Alumno</option>
-                <option value="login">Iniciar Sesión</option>
-                <option value="logout">Cerrar Sesión</option>
+                <option value="update_student">Actualizar Alumno</option>
+                <option value="delete_student">Eliminar Alumno</option>
+                <option value="unenroll_student">Desinscribir Alumno</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">
+                Estado
+              </label>
+              <select
+                value={filters.status}
+                onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="">Todos los estados</option>
+                <option value="success">Exitoso</option>
+                <option value="error">Error</option>
+                <option value="pending">Pendiente</option>
               </select>
             </div>
             <div>
@@ -216,7 +338,7 @@ export default function AdminActivitiesPage() {
             <div className="flex items-end">
               <Button
                 variant="secondary"
-                onClick={() => setFilters({ userId: '', action: '', startDate: '', endDate: '' })}
+                onClick={() => setFilters({ userId: '', action: '', status: '', startDate: '', endDate: '' })}
                 className="w-full"
               >
                 Limpiar Filtros
@@ -243,26 +365,29 @@ export default function AdminActivitiesPage() {
                     Acción
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Estado
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Detalles
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    IP
+                    Fecha
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                    Fecha
+                    Acciones
                   </th>
                 </tr>
               </thead>
               <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {activities.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
+                    <td colSpan={6} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
                       No se encontraron actividades para los filtros seleccionados
                     </td>
                   </tr>
                 ) : (
                   activities.map((activity) => (
-                    <tr key={activity._id}>
+                    <tr key={activity._id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
                           {activity.userId?.firstName} {activity.userId?.lastName}
@@ -276,35 +401,103 @@ export default function AdminActivitiesPage() {
                           {getActionLabel(activity.action)}
                         </span>
                       </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(activity.status)}`}>
+                          {getStatusLabel(activity.status)}
+                        </span>
+                        {activity.errorMessage && (
+                          <div className="text-xs text-red-600 dark:text-red-400 mt-1">
+                            Error
+                          </div>
+                        )}
+                      </td>
                       <td className="px-6 py-4 text-sm text-gray-900 dark:text-gray-100">
-                        {activity.action === 'create_student' && activity.details.studentName && (
+                        {activity.action === 'create_student' && (
                           <div>
-                            <strong>Alumno:</strong> {activity.details.studentName}
-                            {activity.details.studentUsername && (
-                              <div className="text-gray-500 dark:text-gray-400">Usuario: {activity.details.studentUsername}</div>
+                            <strong>Alumno:</strong> {activity.details.studentFirstName && activity.details.studentLastName 
+                              ? `${activity.details.studentFirstName} ${activity.details.studentLastName}`
+                              : activity.details.studentUsername}
+                            <div className="text-gray-500 dark:text-gray-400">
+                              Usuario: {activity.details.studentUsername}
+                            </div>
+                            {activity.details.studentEmail && (
+                              <div className="text-gray-500 dark:text-gray-400">Email: {activity.details.studentEmail}</div>
+                            )}
+                            {activity.details.studentDocument && (
+                              <div className="text-gray-500 dark:text-gray-400">Documento: {activity.details.studentDocument}</div>
+                            )}
+                            {activity.details.studentPassword && (
+                              <div className="text-gray-500 dark:text-gray-400">Contraseña: {activity.details.studentPassword}</div>
+                            )}
+                            {activity.details.moodleUserId && (
+                              <div className="text-gray-500 dark:text-gray-400">ID Moodle: {activity.details.moodleUserId}</div>
                             )}
                           </div>
                         )}
                         {activity.action === 'enroll_student' && (
                           <div>
-                            <strong>Alumno:</strong> {activity.details.studentName}
+                            <strong>Alumno:</strong> {activity.details.studentFirstName && activity.details.studentLastName 
+                              ? `${activity.details.studentFirstName} ${activity.details.studentLastName}`
+                              : activity.details.studentUsername}
+                            <div className="text-gray-500 dark:text-gray-400">
+                              Usuario: {activity.details.studentUsername}
+                            </div>
+                            {activity.details.studentEmail && (
+                              <div className="text-gray-500 dark:text-gray-400">Email: {activity.details.studentEmail}</div>
+                            )}
                             {activity.details.courseName && (
                               <div className="text-gray-500 dark:text-gray-400">Curso: {activity.details.courseName}</div>
                             )}
+                            {activity.details.courseShortName && (
+                              <div className="text-gray-500 dark:text-gray-400">Código: {activity.details.courseShortName}</div>
+                            )}
                           </div>
                         )}
-                        {activity.action === 'login' && (
-                          <div className="text-gray-500 dark:text-gray-400">Inicio de sesión exitoso</div>
+                        {activity.action === 'update_student' && (
+                          <div>
+                            <strong>Actualización:</strong> {activity.details.studentFirstName && activity.details.studentLastName 
+                              ? `${activity.details.studentFirstName} ${activity.details.studentLastName}`
+                              : activity.details.studentUsername}
+                            <div className="text-gray-500 dark:text-gray-400">
+                              Usuario: {activity.details.studentUsername}
+                            </div>
+                            {activity.details.reason && (
+                              <div className="text-gray-500 dark:text-gray-400">Razón: {activity.details.reason}</div>
+                            )}
+                          </div>
                         )}
-                        {activity.action === 'logout' && (
-                          <div className="text-gray-500 dark:text-gray-400">Cierre de sesión</div>
+                        {activity.action === 'delete_student' && (
+                          <div>
+                            <strong>Eliminación:</strong> {activity.details.studentFirstName && activity.details.studentLastName 
+                              ? `${activity.details.studentFirstName} ${activity.details.studentLastName}`
+                              : activity.details.studentUsername}
+                            <div className="text-gray-500 dark:text-gray-400">
+                              Usuario: {activity.details.studentUsername}
+                            </div>
+                            {activity.details.reason && (
+                              <div className="text-gray-500 dark:text-gray-400">Razón: {activity.details.reason}</div>
+                            )}
+                          </div>
                         )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        {activity.ipAddress || 'N/A'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                        {new Date(activity.createdAt).toLocaleString('es-ES')}
+                        {(() => {
+                          try {
+                            const date = new Date(activity.createdAt);
+                            return isNaN(date.getTime()) ? 'Fecha inválida' : date.toLocaleString('es-ES');
+                          } catch {
+                            return 'Fecha inválida';
+                          }
+                        })()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <Button
+                          variant="secondary"
+                          onClick={() => handleViewDetails(activity._id)}
+                          className="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 px-3 py-1 text-sm"
+                        >
+                          Ver Detalle
+                        </Button>
                       </td>
                     </tr>
                   ))
@@ -318,7 +511,7 @@ export default function AdminActivitiesPage() {
             <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700">
               <div className="flex items-center justify-between">
                 <div className="text-sm text-gray-700 dark:text-gray-300">
-                  Página {pagination.page} de {pagination.pages}
+                  Página {pagination.page} de {pagination.pages} ({pagination.total} actividades totales)
                 </div>
                 <div className="flex space-x-2">
                   <Button

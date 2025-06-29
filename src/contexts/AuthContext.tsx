@@ -21,6 +21,28 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Cookie utility functions
+const setCookie = (name: string, value: string, days: number) => {
+  const expires = new Date();
+  expires.setTime(expires.getTime() + (days * 24 * 60 * 60 * 1000));
+  document.cookie = `${name}=${value};expires=${expires.toUTCString()};path=/;SameSite=Strict`;
+};
+
+const getCookie = (name: string): string | null => {
+  const nameEQ = name + "=";
+  const ca = document.cookie.split(';');
+  for (let i = 0; i < ca.length; i++) {
+    let c = ca[i];
+    while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+    if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
+  }
+  return null;
+};
+
+const deleteCookie = (name: string) => {
+  document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 UTC;path=/;`;
+};
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -28,12 +50,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Check for stored token on app load
-    const storedToken = localStorage.getItem('token');
-    const storedUser = localStorage.getItem('user');
+    const storedToken = getCookie('auth_token');
+    const storedUser = getCookie('auth_user');
     
     if (storedToken && storedUser) {
-      setToken(storedToken);
-      setUser(JSON.parse(storedUser));
+      try {
+        setToken(storedToken);
+        setUser(JSON.parse(storedUser));
+      } catch (error) {
+        console.error('Error parsing stored user data:', error);
+        // Clear invalid cookies
+        deleteCookie('auth_token');
+        deleteCookie('auth_user');
+      }
     }
     
     setIsLoading(false);
@@ -54,8 +83,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (data.success) {
         setToken(data.token);
         setUser(data.user);
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
+        
+        // Store in cookies for 24 hours (1 day)
+        setCookie('auth_token', data.token, 1);
+        setCookie('auth_user', JSON.stringify(data.user), 1);
+        
         return true;
       } else {
         return false;
@@ -69,6 +101,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = () => {
     setUser(null);
     setToken(null);
+    
+    // Clear cookies
+    deleteCookie('auth_token');
+    deleteCookie('auth_user');
+    
+    // Also clear localStorage for backward compatibility
     localStorage.removeItem('token');
     localStorage.removeItem('user');
   };

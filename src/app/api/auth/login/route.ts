@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '../../../../lib/mongodb';
 import User from '../../../../models/User';
-import Activity from '../../../../models/Activity';
 import { generateToken } from '../../../../lib/jwt';
 
 export async function POST(request: NextRequest) {
@@ -40,15 +39,6 @@ export async function POST(request: NextRequest) {
       userId: user._id.toString(),
       username: user.username,
       role: user.role,
-    });
-
-    // Log login activity
-    await Activity.create({
-      userId: user._id,
-      userUsername: user.username,
-      action: 'login',
-      ipAddress: request.headers.get('x-forwarded-for') || 'unknown',
-      userAgent: request.headers.get('user-agent'),
     });
 
     return NextResponse.json({
