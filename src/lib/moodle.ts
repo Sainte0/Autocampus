@@ -208,6 +208,42 @@ export async function createUser(userData: CreateUserRequest): Promise<ApiRespon
     };
   }
 
+  // VERIFICAR SI EL USUARIO YA EXISTE EN MOODLE
+  console.log('Verificando si el usuario ya existe en Moodle...');
+  const existingUserCheck = await verifyUser(userData.username);
+  
+  if (existingUserCheck.success && existingUserCheck.data && existingUserCheck.data.length > 0) {
+    return {
+      success: false,
+      error: `El usuario ${userData.username} ya existe en Moodle`
+    };
+  }
+
+  // También verificar por email
+  const existingEmailCheck = await getUserByField('email', userData.email);
+  
+  if (existingEmailCheck.success && existingEmailCheck.data && existingEmailCheck.data.length > 0) {
+    return {
+      success: false,
+      error: `El email ${userData.email} ya está registrado en Moodle`
+    };
+  }
+
+  // VERIFICAR SI EXISTE UN USUARIO CON EL MISMO NOMBRE COMPLETO
+  console.log('Verificando si existe un usuario con el mismo nombre completo...');
+  const duplicateNameCheck = await checkDuplicateName(userData.firstname, userData.lastname);
+  
+  if (duplicateNameCheck.success && duplicateNameCheck.data && duplicateNameCheck.data.length > 0) {
+    const existingUsers = duplicateNameCheck.data.map(user => 
+      `${user.firstname} ${user.lastname} (@${user.username})`
+    ).join(', ');
+    
+    return {
+      success: false,
+      error: `Ya existe un usuario con el nombre ${userData.firstname} ${userData.lastname}. Usuarios existentes: ${existingUsers}`
+    };
+  }
+
   // Formatear los datos del usuario según lo esperado por Moodle
   const formattedUserData = {
     username: userData.username,
@@ -472,4 +508,84 @@ export async function searchUsers(searchTerm: string): Promise<ApiResponse<Moodl
       error: error instanceof Error ? error.message : 'Error al buscar usuarios',
     };
   }
+}
+
+// Nueva función para buscar usuarios por nombre completo
+export async function searchUsersByName(firstName: string, lastName: string): Promise<ApiResponse<MoodleUser[]>> {
+  console.log('Buscando usuarios por nombre completo:', { firstName, lastName });
+  try {
+    // Buscar por nombre y apellido
+    const nameResponse = await callMoodleApi<MoodleUser[]>('core_user_get_users_by_field', {
+      field: 'firstname',
+      values: [firstName],
+    });
+
+    if (nameResponse.success && nameResponse.data && nameResponse.data.length > 0) {
+      // Filtrar por apellido también
+      const filteredUsers = nameResponse.data.filter(user => 
+        user.lastname.toLowerCase() === lastName.toLowerCase()
+      );
+      
+      if (filteredUsers.length > 0) {
+        console.log('Usuarios encontrados por nombre completo:', filteredUsers);
+        return {
+          success: true,
+          data: filteredUsers,
+        };
+      }
+    }
+
+    // Si no se encuentra por nombre, intentar por apellido
+    const lastNameResponse = await callMoodleApi<MoodleUser[]>('core_user_get_users_by_field', {
+      field: 'lastname',
+      values: [lastName],
+    });
+
+    if (lastNameResponse.success && lastNameResponse.data && lastNameResponse.data.length > 0) {
+      // Filtrar por nombre también
+      const filteredUsers = lastNameResponse.data.filter(user => 
+        user.firstname.toLowerCase() === firstName.toLowerCase()
+      );
+      
+      if (filteredUsers.length > 0) {
+        console.log('Usuarios encontrados por nombre completo (búsqueda inversa):', filteredUsers);
+        return {
+          success: true,
+          data: filteredUsers,
+        };
+      }
+    }
+
+    return {
+      success: false,
+      error: 'No se encontraron usuarios con ese nombre completo',
+    };
+  } catch (error) {
+    console.error('Error en búsqueda de usuarios por nombre completo:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error al buscar usuarios por nombre completo',
+    };
+  }
+}
+
+// Función para verificar si existe un usuario con el mismo nombre completo
+export async function checkDuplicateName(firstName: string, lastName: string): Promise<ApiResponse<MoodleUser[]>> {
+  console.log('Verificando duplicados por nombre:', { firstName, lastName });
+  
+  const searchResult = await searchUsersByName(firstName, lastName);
+  
+  if (searchResult.success && searchResult.data && searchResult.data.length > 0) {
+    return {
+      success: true,
+      data: searchResult.data,
+      error: `Ya existe un usuario con el nombre ${firstName} ${lastName}`
+    };
+  }
+  
+  return {
+    success: false,
+    data: [],
+    error: 'No se encontraron duplicados'
+  };
 } 

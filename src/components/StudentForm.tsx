@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 
 interface StudentFormProps {
@@ -11,6 +10,19 @@ interface StudentFormProps {
     password: string;
     document: string;
   }) => Promise<void>;
+}
+
+interface DuplicateResults {
+  usernameExists: boolean;
+  emailExists: boolean;
+  nameExists: boolean;
+  errors: string[];
+  existingUsers: Array<{
+    firstname: string;
+    lastname: string;
+    username: string;
+    email: string;
+  }>;
 }
 
 export function StudentForm({ onSubmit }: StudentFormProps) {
@@ -25,6 +37,54 @@ export function StudentForm({ onSubmit }: StudentFormProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [copiedUsername, setCopiedUsername] = useState(false);
+  const [checkingDuplicates, setCheckingDuplicates] = useState(false);
+  const [duplicateResults, setDuplicateResults] = useState<DuplicateResults | null>(null);
+
+  const checkDuplicates = async () => {
+    if (!formData.email || !formData.firstname || !formData.lastname || !formData.document) {
+      setError('Por favor, complete todos los campos antes de verificar duplicados');
+      return;
+    }
+
+    setCheckingDuplicates(true);
+    setError(null);
+    setDuplicateResults(null);
+
+    try {
+      const response = await fetch('/api/users/check-duplicates', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+        body: JSON.stringify({
+          username: formData.username,
+          email: formData.email,
+          firstname: formData.firstname,
+          lastname: formData.lastname,
+        }),
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        setDuplicateResults(data.results);
+        if (data.hasDuplicates) {
+          setError(`Se encontraron duplicados: ${data.results.errors.join(', ')}`);
+        } else {
+          setError(null);
+        }
+      } else {
+        setError(data.error || 'Error al verificar duplicados');
+      }
+    } catch (err) {
+      console.error('Error al verificar duplicados:', err);
+      setError('Error al verificar duplicados');
+    } finally {
+      setCheckingDuplicates(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,7 +104,9 @@ export function StudentForm({ onSubmit }: StudentFormProps) {
         document: '',
         password: '',
       });
+      setDuplicateResults(null);
     } catch (err) {
+      console.error('Error al crear el estudiante:', err);
       setError(err instanceof Error ? err.message : 'Error al crear el estudiante');
     } finally {
       setLoading(false);
@@ -57,10 +119,46 @@ export function StudentForm({ onSubmit }: StudentFormProps) {
     if (name === 'document') {
       // Generar contraseña automáticamente cuando se ingresa el documento
       const generatedPassword = `Asd${value}!`;
+      
+      // Generar usuario automáticamente si ya tenemos el apellido
+      let generatedUsername = '';
+      if (formData.lastname && value) {
+        // Convertir apellido a minúsculas y remover acentos
+        const cleanLastName = formData.lastname
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '') // Remover acentos
+          .replace(/[^a-z0-9]/g, ''); // Solo letras y números
+        
+        // Generar usuario con formato: documento.apellido
+        generatedUsername = `${value}.${cleanLastName}`;
+      }
+      
       setFormData(prev => ({
         ...prev,
         document: value,
         password: generatedPassword,
+        username: generatedUsername,
+      }));
+    } else if (name === 'lastname') {
+      // Generar usuario automáticamente cuando se ingresa el apellido
+      let generatedUsername = '';
+      if (value && formData.document) {
+        // Convertir apellido a minúsculas y remover acentos
+        const cleanLastName = value
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '') // Remover acentos
+          .replace(/[^a-z0-9]/g, ''); // Solo letras y números
+        
+        // Generar usuario con formato: documento.apellido
+        generatedUsername = `${formData.document}.${cleanLastName}`;
+      }
+      
+      setFormData(prev => ({
+        ...prev,
+        lastname: value,
+        username: generatedUsername,
       }));
     } else {
       setFormData(prev => ({
@@ -80,6 +178,16 @@ export function StudentForm({ onSubmit }: StudentFormProps) {
     }
   };
 
+  const copyUsernameToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(formData.username);
+      setCopiedUsername(true);
+      setTimeout(() => setCopiedUsername(false), 2000);
+    } catch (err) {
+      console.error('Error al copiar:', err);
+    }
+  };
+
   return (
     <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl p-8">
       <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Crear Nuevo Estudiante</h2>
@@ -94,21 +202,6 @@ export function StudentForm({ onSubmit }: StudentFormProps) {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="space-y-2">
             <Input
-              label="Nombre de Usuario"
-              name="username"
-              value={formData.username}
-              onChange={handleChange}
-              placeholder="ej: stefano.santo, test.user"
-              required
-              className="w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 border border-gray-300 dark:border-gray-600 placeholder-gray-400 dark:placeholder-gray-400"
-            />
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              Usa el formato: nombre.apellido (con punto)
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Input
               label="Número de Documento"
               name="document"
               value={formData.document}
@@ -118,8 +211,21 @@ export function StudentForm({ onSubmit }: StudentFormProps) {
               className="w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 border border-gray-300 dark:border-gray-600 placeholder-gray-400 dark:placeholder-gray-400"
             />
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              La contraseña se generará automáticamente
+              El usuario y contraseña se generarán automáticamente
             </p>
+          </div>
+
+          <div className="space-y-2">
+            <Input
+              label="Email"
+              name="email"
+              type="email"
+              value={formData.email}
+              onChange={handleChange}
+              placeholder="ej: estudiante@ejemplo.com"
+              required
+              className="w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 border border-gray-300 dark:border-gray-600 placeholder-gray-400 dark:placeholder-gray-400"
+            />
           </div>
         </div>
 
@@ -145,66 +251,123 @@ export function StudentForm({ onSubmit }: StudentFormProps) {
           />
         </div>
 
-        <Input
-          label="Correo Electrónico"
-          name="email"
-          type="email"
-          value={formData.email}
-          onChange={handleChange}
-          placeholder="Ingresa el correo electrónico"
-          required
-          className="w-full bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 border border-gray-300 dark:border-gray-600 placeholder-gray-400 dark:placeholder-gray-400"
-        />
-
-        {/* Campo de contraseña generada automáticamente */}
-        <div className="space-y-2">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-200">
-            Contraseña Generada
-          </label>
-          <div className="relative">
-            <Input
-              name="password"
-              type="text"
-              value={formData.password}
-              readOnly
-              className="w-full pr-12 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 border border-gray-300 dark:border-gray-600 placeholder-gray-400 dark:placeholder-gray-400"
-              placeholder="Se generará automáticamente al ingresar el documento"
-            />
-            <button
-              type="button"
-              onClick={copyToClipboard}
-              className="absolute right-2 top-1/2 transform -translate-y-1/2 p-2 text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 rounded"
-              title="Copiar contraseña"
-            >
-              {copied ? (
-                <svg className="w-5 h-5 text-green-500 dark:text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-              ) : (
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                </svg>
-              )}
-            </button>
-          </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            Formato: Asd(documento)! - Se genera automáticamente al ingresar el documento
-          </p>
-          {copied && (
-            <p className="text-xs text-green-600 dark:text-green-300">
-              ✓ Contraseña copiada al portapapeles
-            </p>
-          )}
+        {/* Botón de verificación de duplicados */}
+        <div className="flex justify-center">
+          <button
+            type="button"
+            onClick={checkDuplicates}
+            disabled={checkingDuplicates || !formData.email || !formData.firstname || !formData.lastname || !formData.document}
+            className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-6 py-2 rounded-lg font-medium transition-colors duration-200"
+          >
+            {checkingDuplicates ? 'Verificando...' : 'Verificar Duplicados'}
+          </button>
         </div>
 
-        <Button
+        {/* Mostrar resultados de duplicados */}
+        {duplicateResults && (
+          <div className={`p-4 rounded-lg border ${
+            duplicateResults.usernameExists || duplicateResults.emailExists || duplicateResults.nameExists
+              ? 'bg-red-50 dark:bg-red-900/30 border-red-500 dark:border-red-400'
+              : 'bg-green-50 dark:bg-green-900/30 border-green-500 dark:border-green-400'
+          }`}>
+            <h4 className="font-medium mb-2">
+              {duplicateResults.usernameExists || duplicateResults.emailExists || duplicateResults.nameExists
+                ? 'Se encontraron duplicados:'
+                : 'No se encontraron duplicados'}
+            </h4>
+            {duplicateResults.errors.length > 0 && (
+              <ul className="list-disc list-inside space-y-1">
+                {duplicateResults.errors.map((error: string, index: number) => (
+                  <li key={index} className="text-sm">{error}</li>
+                ))}
+              </ul>
+            )}
+            {duplicateResults.existingUsers.length > 0 && (
+              <div className="mt-3">
+                <h5 className="font-medium mb-2">Usuarios existentes:</h5>
+                <div className="space-y-1">
+                  {duplicateResults.existingUsers.map((user, index: number) => (
+                    <div key={index} className="text-sm bg-white dark:bg-gray-800 p-2 rounded">
+                      <strong>{user.firstname} {user.lastname}</strong> (@{user.username}) - {user.email}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Credenciales generadas automáticamente */}
+        {(formData.username || formData.password) && (
+          <div className="bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 rounded-lg p-6">
+            <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-4">
+              Credenciales Generadas
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Input
+                  label="Nombre de Usuario"
+                  name="username"
+                  value={formData.username}
+                  onChange={handleChange}
+                  placeholder="Se genera automáticamente"
+                  required
+                  readOnly
+                  className="w-full bg-gray-50 dark:bg-gray-600 text-gray-900 dark:text-gray-100 border border-gray-300 dark:border-gray-600"
+                />
+                <div className="flex items-center space-x-2">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Formato: documento.apellido
+                  </p>
+                  {formData.username && (
+                    <button
+                      type="button"
+                      onClick={copyUsernameToClipboard}
+                      className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-xs font-medium"
+                    >
+                      {copiedUsername ? '¡Copiado!' : 'Copiar usuario'}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Input
+                  label="Contraseña"
+                  name="password"
+                  value={formData.password}
+                  onChange={handleChange}
+                  placeholder="Contraseña generada automáticamente"
+                  required
+                  readOnly
+                  className="w-full bg-gray-50 dark:bg-gray-600 text-gray-900 dark:text-gray-100 border border-gray-300 dark:border-gray-600"
+                />
+                <div className="flex items-center space-x-2">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Formato: Asd{formData.document}!
+                  </p>
+                  {formData.password && (
+                    <button
+                      type="button"
+                      onClick={copyToClipboard}
+                      className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-xs font-medium"
+                    >
+                      {copied ? '¡Copiado!' : 'Copiar contraseña'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <button
           type="submit"
-          variant="primary"
-          isLoading={loading}
-          className="w-full py-3 text-lg font-semibold"
+          disabled={loading || (duplicateResults ? (duplicateResults.usernameExists || duplicateResults.emailExists || duplicateResults.nameExists) : false)}
+          className="w-full bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white py-3 px-4 rounded-lg font-medium transition-colors duration-200"
         >
-          Crear Estudiante
-        </Button>
+          {loading ? 'Creando estudiante...' : 'Crear Estudiante'}
+        </button>
       </form>
     </div>
   );
