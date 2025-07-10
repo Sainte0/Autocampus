@@ -5,6 +5,7 @@ import { AuthProvider } from '../contexts/AuthContext'
 import Navigation from '../components/Navigation'
 import Footer from '../components/Footer'
 import { ThemeProvider } from '../contexts/ThemeContext'
+import { UserStateProvider } from '../contexts/UserStateContext'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -40,13 +41,15 @@ export default function RootLayout({
       <body className={inter.className}>
         <ThemeProvider>
           <AuthProvider>
-            <div className="flex flex-col min-h-screen">
-              <Navigation />
-              <main className="flex-1">
-                {children}
-              </main>
-              <Footer />
-            </div>
+            <UserStateProvider>
+              <div className="flex flex-col min-h-screen">
+                <Navigation />
+                <main className="flex-1">
+                  {children}
+                </main>
+                <Footer />
+              </div>
+            </UserStateProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

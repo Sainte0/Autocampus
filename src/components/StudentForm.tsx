@@ -10,6 +10,7 @@ interface StudentFormProps {
     password: string;
     document: string;
   }) => Promise<void>;
+  token?: string;
 }
 
 interface DuplicateResults {
@@ -25,7 +26,7 @@ interface DuplicateResults {
   }>;
 }
 
-export function StudentForm({ onSubmit }: StudentFormProps) {
+export function StudentForm({ onSubmit, token }: StudentFormProps) {
   const [formData, setFormData] = useState({
     username: '',
     firstname: '',
@@ -56,7 +57,7 @@ export function StudentForm({ onSubmit }: StudentFormProps) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          ...(token && { 'Authorization': `Bearer ${token}` }),
         },
         body: JSON.stringify({
           username: formData.username,
@@ -270,7 +271,11 @@ export function StudentForm({ onSubmit }: StudentFormProps) {
               ? 'bg-red-50 dark:bg-red-900/30 border-red-500 dark:border-red-400'
               : 'bg-green-50 dark:bg-green-900/30 border-green-500 dark:border-green-400'
           }`}>
-            <h4 className="font-medium mb-2">
+            <h4 className={`font-medium mb-2 ${
+              duplicateResults.usernameExists || duplicateResults.emailExists || duplicateResults.nameExists
+                ? 'text-red-800 dark:text-red-200'
+                : 'text-green-800 dark:text-green-200'
+            }`}>
               {duplicateResults.usernameExists || duplicateResults.emailExists || duplicateResults.nameExists
                 ? 'Se encontraron duplicados:'
                 : 'No se encontraron duplicados'}
@@ -278,17 +283,27 @@ export function StudentForm({ onSubmit }: StudentFormProps) {
             {duplicateResults.errors.length > 0 && (
               <ul className="list-disc list-inside space-y-1">
                 {duplicateResults.errors.map((error: string, index: number) => (
-                  <li key={index} className="text-sm">{error}</li>
+                  <li key={index} className={`text-sm ${
+                    duplicateResults.usernameExists || duplicateResults.emailExists || duplicateResults.nameExists
+                      ? 'text-red-700 dark:text-red-300'
+                      : 'text-green-700 dark:text-green-300'
+                  }`}>{error}</li>
                 ))}
               </ul>
             )}
             {duplicateResults.existingUsers.length > 0 && (
               <div className="mt-3">
-                <h5 className="font-medium mb-2">Usuarios existentes:</h5>
+                <h5 className={`font-medium mb-2 ${
+                  duplicateResults.usernameExists || duplicateResults.emailExists || duplicateResults.nameExists
+                    ? 'text-red-800 dark:text-red-200'
+                    : 'text-green-800 dark:text-green-200'
+                }`}>Usuarios existentes:</h5>
                 <div className="space-y-1">
                   {duplicateResults.existingUsers.map((user, index: number) => (
-                    <div key={index} className="text-sm bg-white dark:bg-gray-800 p-2 rounded">
-                      <strong>{user.firstname} {user.lastname}</strong> (@{user.username}) - {user.email}
+                    <div key={index} className="text-sm bg-white dark:bg-gray-700 p-2 rounded border border-gray-200 dark:border-gray-600">
+                      <span className="text-gray-900 dark:text-gray-100">
+                        <strong>{user.firstname} {user.lastname}</strong> (@{user.username}) - {user.email}
+                      </span>
                     </div>
                   ))}
                 </div>

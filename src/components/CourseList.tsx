@@ -420,6 +420,12 @@ export function CourseList({ courses, onEnroll }: CourseListProps) {
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
                             ID: {course.id}
                           </span>
+                          <a
+                            href={`/courses/${course.id}/students`}
+                            className="inline-flex items-center px-3 py-1.5 rounded-md text-sm font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-200 dark:hover:bg-blue-800 transition-colors duration-200"
+                          >
+                            Ver Alumnos
+                          </a>
                         </div>
                       </div>
                       <div className="ml-4 flex-shrink-0">

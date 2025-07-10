@@ -7,7 +7,17 @@ interface MoodleApiParams {
   [key: string]: string | number | boolean | Array<string | number | boolean> | Array<Record<string, string | number | boolean>>;
 }
 
-async function callMoodleApi<T>(wsfunction: string, params: MoodleApiParams = {}): Promise<ApiResponse<T>> {
+interface Enrolment {
+  id: number;
+  courseid: number;
+  roleid: number;
+  suspended: boolean;
+  timestart: number;
+  timeend: number;
+  [key: string]: unknown;
+}
+
+export async function callMoodleApi<T>(wsfunction: string, params: MoodleApiParams = {}): Promise<ApiResponse<T>> {
   const queryParams = new URLSearchParams({
     wstoken: MOODLE_TOKEN || '',
     wsfunction,
@@ -89,8 +99,8 @@ async function callMoodleApi<T>(wsfunction: string, params: MoodleApiParams = {}
     // Verificar si la respuesta es null o undefined
     if (data === null || data === undefined) {
       console.log('Moodle returned null/undefined response - this might be normal for successful operations');
-      // Para algunas operaciones como enrollments, una respuesta nula puede indicar éxito
-      if (wsfunction === 'enrol_manual_enrol_users') {
+      // Para algunas operaciones como enrollments y unenrollments, una respuesta nula puede indicar éxito
+      if (wsfunction === 'enrol_manual_enrol_users' || wsfunction === 'enrol_manual_unenrol_users') {
         return { 
           success: true, 
           data: { success: true } as T
@@ -588,4 +598,1101 @@ export async function checkDuplicateName(firstName: string, lastName: string): P
     data: [],
     error: 'No se encontraron duplicados'
   };
+}
+
+// Función para obtener todos los usuarios
+export async function getAllUsers(): Promise<MoodleUser[]> {
+  console.log('Obteniendo todos los usuarios...');
+  try {
+    // Intentar obtener usuarios de diferentes maneras
+    const responses = await Promise.allSettled([
+      // Buscar por diferentes campos para obtener una muestra de usuarios
+      callMoodleApi<MoodleUser[]>('core_user_get_users_by_field', {
+        field: 'id',
+        values: ['1', '2', '3', '4', '5'], // IDs de ejemplo
+      }),
+      callMoodleApi<MoodleUser[]>('core_user_get_users_by_field', {
+        field: 'username',
+        values: ['admin', 'guest', 'test'], // Usernames de ejemplo
+      }),
+      callMoodleApi<MoodleUser[]>('core_user_get_users_by_field', {
+        field: 'email',
+        values: ['admin@example.com', 'test@example.com'], // Emails de ejemplo
+      }),
+    ]);
+
+    const allUsers: MoodleUser[] = [];
+    const seenIds = new Set<number>();
+
+    responses.forEach((response) => {
+      if (response.status === 'fulfilled' && response.value.success && response.value.data) {
+        response.value.data.forEach((user) => {
+          if (!seenIds.has(user.id)) {
+            seenIds.add(user.id);
+            allUsers.push(user);
+          }
+        });
+      }
+    });
+
+    console.log(`Se obtuvieron ${allUsers.length} usuarios únicos`);
+    return allUsers;
+  } catch (error) {
+    console.error('Error obteniendo todos los usuarios:', error);
+    return [];
+  }
+} 
+
+// Función para obtener estudiantes de un curso específico
+export async function getCourseStudents(courseId: number): Promise<ApiResponse<MoodleUser[]>> {
+  console.log(`Obteniendo estudiantes para el curso ${courseId}`);
+  
+  try {
+    // Método 1: Intentar con core_enrol_get_enrolled_users (API principal)
+    console.log('Método 1: Intentando con core_enrol_get_enrolled_users...');
+    let response = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users', {
+      courseid: courseId,
+      options: [
+        { name: 'withcapability', value: 'moodle/course:view' },
+        { name: 'groupid', value: 0 },
+        { name: 'onlyactive', value: false }
+      ]
+    });
+
+    console.log('Respuesta de core_enrol_get_enrolled_users:', response);
+
+    if (response.success && response.data && response.data.length > 0) {
+      // Procesar los datos para detectar suspensión específica del curso
+      const processedStudents = response.data.map(user => ({
+        ...user,
+        suspended: user.suspended || 
+                  (user.enrolments && user.enrolments.some((enrol: Enrolment) => enrol.suspended)) ||
+                  false
+      }));
+      
+      console.log(`Encontrados ${processedStudents.length} estudiantes con core_enrol_get_enrolled_users`);
+      return {
+        success: true,
+        data: processedStudents
+      };
+    }
+
+    if (!response.success) {
+      console.log('Error en core_enrol_get_enrolled_users:', response.error);
+    }
+
+    // Método 2: Intentar con core_enrol_get_enrolled_users_with_capability
+    console.log('Método 2: Intentando con core_enrol_get_enrolled_users_with_capability...');
+    response = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users_with_capability', {
+      courselimit: 1,
+      courseids: [courseId],
+      options: [
+        { name: 'withcapability', value: 'moodle/course:view' },
+        { name: 'groupid', value: 0 },
+        { name: 'onlyactive', value: false }
+      ]
+    });
+
+    console.log('Respuesta de core_enrol_get_enrolled_users_with_capability:', response);
+
+    if (response.success && response.data && response.data.length > 0) {
+      // Procesar los datos para detectar suspensión específica del curso
+      const processedStudents = response.data.map(user => ({
+        ...user,
+        suspended: user.suspended || 
+                  (user.enrolments && user.enrolments.some((enrol: Enrolment) => enrol.suspended)) ||
+                  false
+      }));
+      
+      console.log(`Encontrados ${processedStudents.length} estudiantes con core_enrol_get_enrolled_users_with_capability`);
+      return {
+        success: true,
+        data: processedStudents
+      };
+    }
+
+    if (!response.success) {
+      console.log('Error en core_enrol_get_enrolled_users_with_capability:', response.error);
+    }
+
+    // Método 3: Intentar con core_user_search_identity como fallback
+    console.log('Método 3: Intentando con core_user_search_identity...');
+    response = await callMoodleApi<MoodleUser[]>('core_user_search_identity', {
+      query: '',
+      limitfrom: 0,
+      limitnum: 100
+    });
+
+    console.log('Respuesta de core_user_search_identity:', response);
+
+    if (response.success && response.data && response.data.length > 0) {
+      console.log(`Encontrados ${response.data.length} usuarios con core_user_search_identity (fallback)`);
+      return response;
+    }
+
+    // Método 4: Intentar con core_user_get_users como último recurso
+    console.log('Método 4: Intentando con core_user_get_users...');
+    response = await callMoodleApi<MoodleUser[]>('core_user_get_users', {
+      criteria: [
+        { key: 'deleted', value: '0' },
+        { key: 'suspended', value: '0' }
+      ]
+    });
+
+    console.log('Respuesta de core_user_get_users:', response);
+
+    if (response.success && response.data && response.data.length > 0) {
+      console.log(`Encontrados ${response.data.length} usuarios con core_user_get_users (último recurso)`);
+      return response;
+    }
+
+    return {
+      success: false,
+      error: 'No se pudieron obtener estudiantes del curso',
+      data: []
+    };
+
+  } catch (error) {
+    console.error('Error obteniendo estudiantes del curso:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error al obtener estudiantes del curso',
+      data: []
+    };
+  }
+} 
+
+// Función alternativa para obtener participantes del curso
+export async function getCourseParticipants(courseId: number): Promise<ApiResponse<MoodleUser[]>> {
+  console.log(`Obteniendo participantes del curso ${courseId} con método alternativo`);
+  
+  try {
+    // Método 1: Intentar con core_enrol_get_enrolled_users (método estándar)
+    console.log('Método alternativo 1: core_enrol_get_enrolled_users...');
+    let response = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users', {
+      courseid: courseId
+    });
+
+    if (response.success && response.data && response.data.length > 0) {
+      console.log(`Encontrados ${response.data.length} participantes con método alternativo 1`);
+      return response;
+    }
+
+    // Método 2: Intentar con core_enrol_get_enrolled_users_with_capability
+    console.log('Método alternativo 2: core_enrol_get_enrolled_users_with_capability...');
+    response = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users_with_capability', {
+      courseid: courseId,
+      capability: 'moodle/course:view'
+    });
+
+    if (response.success && response.data && response.data.length > 0) {
+      console.log(`Encontrados ${response.data.length} participantes con método alternativo 2`);
+      return response;
+    }
+
+    // Método 3: Intentar con core_enrol_get_enrolled_users_with_capability (sin filtros)
+    console.log('Método alternativo 3: core_enrol_get_enrolled_users_with_capability (sin filtros)...');
+    response = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users_with_capability', {
+      courseid: courseId
+    });
+
+    if (response.success && response.data && response.data.length > 0) {
+      console.log(`Encontrados ${response.data.length} participantes con método alternativo 3`);
+      return response;
+    }
+
+    // Método 4: Intentar con core_course_get_enrolled_users_by_cmid
+    console.log('Método alternativo 4: core_course_get_enrolled_users_by_cmid...');
+    response = await callMoodleApi<MoodleUser[]>('core_course_get_enrolled_users_by_cmid', {
+      cmid: courseId
+    });
+
+    if (response.success && response.data && response.data.length > 0) {
+      console.log(`Encontrados ${response.data.length} participantes con método alternativo 4`);
+      return response;
+    }
+
+    // Método 5: Intentar con core_enrol_get_enrolled_users (con parámetros adicionales)
+    console.log('Método alternativo 5: core_enrol_get_enrolled_users (con parámetros adicionales)...');
+    response = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users', {
+      courseid: courseId,
+      options: [
+        {
+          name: 'withcapability',
+          value: 'moodle/course:view'
+        }
+      ]
+    });
+
+    if (response.success && response.data && response.data.length > 0) {
+      console.log(`Encontrados ${response.data.length} participantes con método alternativo 5`);
+      return response;
+    }
+
+    return {
+      success: false,
+      error: 'No se pudieron obtener participantes del curso con métodos alternativos',
+      data: []
+    };
+
+  } catch (error) {
+    console.error('Error obteniendo participantes del curso:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error al obtener participantes del curso',
+      data: []
+    };
+  }
+} 
+
+// Función específica para obtener estudiantes inscritos en un curso
+export async function getEnrolledStudents(courseId: number): Promise<ApiResponse<MoodleUser[]>> {
+  console.log(`Obteniendo estudiantes INSCRITOS en el curso ${courseId}`);
+  
+  try {
+    // Método 1: core_enrol_get_enrolled_users (API principal para enrollment)
+    console.log('Método 1: core_enrol_get_enrolled_users...');
+    let response = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users', {
+      courseid: courseId
+    });
+
+    console.log('Respuesta de core_enrol_get_enrolled_users:', response);
+
+    if (response.success && response.data && response.data.length > 0) {
+      console.log(`Encontrados ${response.data.length} estudiantes inscritos con core_enrol_get_enrolled_users`);
+      return response;
+    }
+
+    // Método 2: core_enrol_get_enrolled_users_with_capability (sin parámetros adicionales)
+    console.log('Método 2: core_enrol_get_enrolled_users_with_capability (sin parámetros)...');
+    response = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users_with_capability', {
+      courseid: courseId
+    });
+
+    console.log('Respuesta de core_enrol_get_enrolled_users_with_capability:', response);
+
+    if (response.success && response.data && response.data.length > 0) {
+      console.log(`Encontrados ${response.data.length} estudiantes inscritos con core_enrol_get_enrolled_users_with_capability`);
+      return response;
+    }
+
+    // Método 3: core_enrol_get_enrolled_users_with_capability (con capability específica)
+    console.log('Método 3: core_enrol_get_enrolled_users_with_capability (con capability)...');
+    response = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users_with_capability', {
+      courseid: courseId,
+      capability: 'moodle/course:view'
+    });
+
+    console.log('Respuesta de core_enrol_get_enrolled_users_with_capability (con capability):', response);
+
+    if (response.success && response.data && response.data.length > 0) {
+      console.log(`Encontrados ${response.data.length} estudiantes inscritos con core_enrol_get_enrolled_users_with_capability (con capability)`);
+      return response;
+    }
+
+    // Método 4: core_enrol_get_enrolled_users_with_capability (con capability de estudiante)
+    console.log('Método 4: core_enrol_get_enrolled_users_with_capability (capability estudiante)...');
+    response = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users_with_capability', {
+      courseid: courseId,
+      capability: 'moodle/course:view',
+      groupid: 0,
+      onlyactive: 0
+    });
+
+    console.log('Respuesta de core_enrol_get_enrolled_users_with_capability (capability estudiante):', response);
+
+    if (response.success && response.data && response.data.length > 0) {
+      console.log(`Encontrados ${response.data.length} estudiantes inscritos con core_enrol_get_enrolled_users_with_capability (capability estudiante)`);
+      return response;
+    }
+
+    // Método 5: core_course_get_enrolled_users_by_cmid (alternativa)
+    console.log('Método 5: core_course_get_enrolled_users_by_cmid...');
+    response = await callMoodleApi<MoodleUser[]>('core_course_get_enrolled_users_by_cmid', {
+      cmid: courseId
+    });
+
+    console.log('Respuesta de core_course_get_enrolled_users_by_cmid:', response);
+
+    if (response.success && response.data && response.data.length > 0) {
+      console.log(`Encontrados ${response.data.length} estudiantes inscritos con core_course_get_enrolled_users_by_cmid`);
+      return response;
+    }
+
+    // Método 6: core_enrol_get_enrolled_users (con options)
+    console.log('Método 6: core_enrol_get_enrolled_users (con options)...');
+    response = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users', {
+      courseid: courseId,
+      options: [
+        {
+          name: 'withcapability',
+          value: 'moodle/course:view'
+        }
+      ]
+    });
+
+    console.log('Respuesta de core_enrol_get_enrolled_users (con options):', response);
+
+    if (response.success && response.data && response.data.length > 0) {
+      console.log(`Encontrados ${response.data.length} estudiantes inscritos con core_enrol_get_enrolled_users (con options)`);
+      return response;
+    }
+
+    // Método 7: core_enrol_get_enrolled_users (con parámetros adicionales)
+    console.log('Método 7: core_enrol_get_enrolled_users (con parámetros adicionales)...');
+    response = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users', {
+      courseid: courseId,
+      groupid: 0,
+      onlyactive: 0
+    });
+
+    console.log('Respuesta de core_enrol_get_enrolled_users (con parámetros adicionales):', response);
+
+    if (response.success && response.data && response.data.length > 0) {
+      console.log(`Encontrados ${response.data.length} estudiantes inscritos con core_enrol_get_enrolled_users (con parámetros adicionales)`);
+      return response;
+    }
+
+    // Si todos los métodos fallan, intentar obtener información del curso primero
+    console.log('Método 8: Verificando información del curso...');
+    const courseResponse = await callMoodleApi<MoodleCourse[]>('core_course_get_courses', {
+      options: [
+        {
+          name: 'ids',
+          value: courseId.toString()
+        }
+      ]
+    });
+
+    console.log('Información del curso:', courseResponse);
+
+    return {
+      success: false,
+      error: 'No se pudieron obtener estudiantes inscritos en el curso. Posibles causas: permisos insuficientes, curso no existe, o APIs no disponibles.',
+      data: []
+    };
+
+  } catch (error) {
+    console.error('Error obteniendo estudiantes inscritos del curso:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error al obtener estudiantes inscritos del curso',
+      data: []
+    };
+  }
+} 
+
+// Función temporal para obtener estudiantes del curso usando APIs disponibles
+export async function getCourseStudentsTemporary(courseId: number): Promise<ApiResponse<MoodleUser[]>> {
+  console.log(`Obteniendo estudiantes del curso ${courseId} usando método temporal`);
+  
+  try {
+    // En lugar de verificar si el curso existe (que puede fallar), 
+    // simplemente intentamos obtener estudiantes y si no hay, devolvemos array vacío
+    
+    // Paso 1: Intentar obtener estudiantes con core_enrol_get_enrolled_users (método más simple)
+    console.log('Paso 1: Intentando obtener estudiantes con core_enrol_get_enrolled_users...');
+    const enrolledResponse = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users', {
+      courseid: courseId
+    });
+
+    if (enrolledResponse.success && enrolledResponse.data && enrolledResponse.data.length > 0) {
+      console.log(`Encontrados ${enrolledResponse.data.length} estudiantes inscritos`);
+      return {
+        success: true,
+        data: enrolledResponse.data
+      };
+    }
+
+    // Si no hay estudiantes inscritos, devolver array vacío con éxito
+    if (enrolledResponse.success && (!enrolledResponse.data || enrolledResponse.data.length === 0)) {
+      console.log('No hay estudiantes inscritos en el curso');
+      return {
+        success: true,
+        data: []
+      };
+    }
+
+    // Si hay error en la API, intentar método alternativo
+    console.log('Error en core_enrol_get_enrolled_users, intentando método alternativo...');
+    
+    // Paso 2: Intentar con core_enrol_get_enrolled_users_with_capability
+    const capabilityResponse = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users_with_capability', {
+      courseid: courseId
+    });
+
+    if (capabilityResponse.success && capabilityResponse.data && capabilityResponse.data.length > 0) {
+      console.log(`Encontrados ${capabilityResponse.data.length} estudiantes con capability`);
+      return {
+        success: true,
+        data: capabilityResponse.data
+      };
+    }
+
+    // Si no hay estudiantes con capability, devolver array vacío con éxito
+    if (capabilityResponse.success && (!capabilityResponse.data || capabilityResponse.data.length === 0)) {
+      console.log('No hay estudiantes con capability en el curso');
+      return {
+        success: true,
+        data: []
+      };
+    }
+
+    // Si ambos métodos fallan, asumir que no hay estudiantes en lugar de error
+    console.log('Ambos métodos fallaron, asumiendo que no hay estudiantes en el curso');
+    return {
+      success: true,
+      data: []
+    };
+
+  } catch (error) {
+    console.error('Error en método temporal:', error);
+    // En caso de error, también asumir que no hay estudiantes en lugar de fallar
+    return {
+      success: true,
+      data: []
+    };
+  }
+} 
+
+// Función de prueba para diagnosticar core_user_get_users
+export async function testCoreUserGetUsers(searchTerm: string) {
+  console.log(`=== PRUEBA DE CORE_USER_GET_USERS ===`);
+  console.log(`Término de búsqueda: ${searchTerm}`);
+  
+  try {
+    // Prueba 1: Solo firstname
+    console.log('\n--- Prueba 1: Solo firstname ---');
+    const response1 = await callMoodleApi<MoodleUser[]>('core_user_get_users', {
+      criteria: [{ key: 'firstname', value: searchTerm }]
+    });
+    console.log('Respuesta firstname:', JSON.stringify(response1, null, 2));
+    
+    // Prueba 2: Solo lastname
+    console.log('\n--- Prueba 2: Solo lastname ---');
+    const response2 = await callMoodleApi<MoodleUser[]>('core_user_get_users', {
+      criteria: [{ key: 'lastname', value: searchTerm }]
+    });
+    console.log('Respuesta lastname:', JSON.stringify(response2, null, 2));
+    
+    // Prueba 3: Solo email
+    console.log('\n--- Prueba 3: Solo email ---');
+    const response3 = await callMoodleApi<MoodleUser[]>('core_user_get_users', {
+      criteria: [{ key: 'email', value: searchTerm }]
+    });
+    console.log('Respuesta email:', JSON.stringify(response3, null, 2));
+    
+    // Prueba 4: Sin criterios (debería devolver todos los usuarios)
+    console.log('\n--- Prueba 4: Sin criterios ---');
+    const response4 = await callMoodleApi<MoodleUser[]>('core_user_get_users', {});
+    console.log('Respuesta sin criterios:', JSON.stringify(response4, null, 2));
+    
+    return {
+      firstname: response1,
+      lastname: response2,
+      email: response3,
+      all: response4
+    };
+    
+  } catch (error) {
+    console.error('Error en testCoreUserGetUsers:', error);
+    return null;
+  }
+}
+
+export async function searchUsersByNamePartial(name: string) {
+  console.log(`Búsqueda de usuarios por nombre: ${name}`);
+  
+  try {
+    // Usar core_user_get_users para búsqueda parcial por nombre
+    console.log('Enviando request a core_user_get_users con criterios:', [
+      { key: 'firstname', value: name },
+      { key: 'lastname', value: name }
+    ]);
+    
+    const response = await callMoodleApi<MoodleUser[]>('core_user_get_users', {
+      criteria: [
+        { key: 'firstname', value: name },
+        { key: 'lastname', value: name }
+      ]
+    });
+    
+    console.log('Respuesta completa de core_user_get_users:', JSON.stringify(response, null, 2));
+    
+    // Verificar si la respuesta fue exitosa y tiene datos
+    if (response.success && response.data && Array.isArray(response.data) && response.data.length > 0) {
+      console.log(`Encontrados ${response.data.length} usuarios con nombre "${name}"`);
+      return { success: true, data: response.data };
+    }
+    
+    // Si no hay datos, verificar si hay error
+    if (!response.success) {
+      console.log('Error en core_user_get_users:', response.error);
+    }
+    
+    if (response.data && Array.isArray(response.data) && response.data.length === 0) {
+      console.log('core_user_get_users devolvió array vacío');
+    }
+    
+    return { 
+      success: false, 
+      error: `No se encontraron usuarios con el nombre "${name}"`,
+      data: []
+    };
+    
+  } catch (error) {
+    console.error('Error en searchUsersByNamePartial:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Error desconocido',
+      data: []
+    };
+  }
+}
+
+export async function searchUsersSimple(searchTerm: string) {
+  console.log(`Búsqueda simple optimizada de usuarios con término: ${searchTerm}`);
+  
+  try {
+    // Método 1: Intentar búsqueda directa por email (más confiable y rápido)
+    console.log('Método 1: Búsqueda directa por email...');
+    try {
+      const emailResponse = await callMoodleApi<MoodleUser[]>('core_user_get_users_by_field', {
+        field: 'email',
+        values: [searchTerm]
+      });
+      
+      if (emailResponse.success && emailResponse.data && Array.isArray(emailResponse.data) && emailResponse.data.length > 0) {
+        console.log(`Encontrados ${emailResponse.data.length} usuarios por email`);
+        return { success: true, data: emailResponse.data };
+      }
+    } catch (emailError) {
+      console.log('Error en búsqueda por email:', emailError);
+    }
+    
+    // Método 2: Intentar búsqueda directa por username
+    console.log('Método 2: Búsqueda directa por username...');
+    try {
+      const usernameResponse = await callMoodleApi<MoodleUser[]>('core_user_get_users_by_field', {
+        field: 'username',
+        values: [searchTerm]
+      });
+      
+      if (usernameResponse.success && usernameResponse.data && Array.isArray(usernameResponse.data) && usernameResponse.data.length > 0) {
+        console.log(`Encontrados ${usernameResponse.data.length} usuarios por username`);
+        return { success: true, data: usernameResponse.data };
+      }
+    } catch (usernameError) {
+      console.log('Error en búsqueda por username:', usernameError);
+    }
+    
+    // Método 3: Búsqueda inteligente por nombre usando rangos estratégicos
+    console.log('Método 3: Búsqueda inteligente por nombre...');
+    const nameResults = await searchUsersByNameIntelligent(searchTerm);
+    if (nameResults && nameResults.length > 0) {
+      console.log(`Encontrados ${nameResults.length} usuarios por búsqueda inteligente`);
+      return { success: true, data: nameResults };
+    }
+    
+    return { 
+      success: false, 
+      error: 'No se encontraron usuarios con el término de búsqueda especificado',
+      data: []
+    };
+    
+  } catch (error) {
+    console.error('Error en searchUsersSimple:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Error desconocido',
+      data: []
+    };
+  }
+}
+
+export async function searchUsersAdvanced(criteria: { key: string; value: string }[]) {
+  console.log(`Búsqueda avanzada optimizada de usuarios con criterios:`, criteria);
+  
+  try {
+    const results: MoodleUser[] = [];
+    
+    for (const criterion of criteria) {
+      try {
+        if (criterion.key === 'email') {
+          // Buscar por email (método directo y eficiente)
+          const response = await callMoodleApi<MoodleUser[]>('core_user_get_users_by_field', {
+            field: 'email',
+            values: [criterion.value]
+          });
+          
+          if (response.success && response.data && Array.isArray(response.data) && response.data.length > 0) {
+            results.push(...response.data);
+          }
+        } else if (criterion.key === 'username') {
+          // Buscar por username (método directo y eficiente)
+          const response = await callMoodleApi<MoodleUser[]>('core_user_get_users_by_field', {
+            field: 'username',
+            values: [criterion.value]
+          });
+          
+          if (response.success && response.data && Array.isArray(response.data) && response.data.length > 0) {
+            results.push(...response.data);
+          }
+        } else if (criterion.key === 'id') {
+          // Buscar por ID (método directo y eficiente)
+          const response = await callMoodleApi<MoodleUser[]>('core_user_get_users_by_field', {
+            field: 'id',
+            values: [criterion.value]
+          });
+          
+          if (response.success && response.data && Array.isArray(response.data) && response.data.length > 0) {
+            results.push(...response.data);
+          }
+        } else if (criterion.key === 'firstname') {
+          // Buscar por nombre usando core_user_get_users
+          const response = await callMoodleApi<MoodleUser[]>('core_user_get_users', {
+            criteria: [
+              { key: 'firstname', value: criterion.value }
+            ]
+          });
+          
+          if (response.success && response.data && Array.isArray(response.data) && response.data.length > 0) {
+            results.push(...response.data);
+          }
+        } else if (criterion.key === 'lastname') {
+          // Buscar por apellido usando core_user_get_users
+          const response = await callMoodleApi<MoodleUser[]>('core_user_get_users', {
+            criteria: [
+              { key: 'lastname', value: criterion.value }
+            ]
+          });
+          
+          if (response.success && response.data && Array.isArray(response.data) && response.data.length > 0) {
+            results.push(...response.data);
+          }
+        } else {
+          // Para otros criterios, usar búsqueda optimizada por rangos
+          const optimizedUsers = await getOptimizedSampleUsers(criterion.value);
+          if (optimizedUsers && optimizedUsers.length > 0) {
+            results.push(...optimizedUsers);
+          }
+        }
+      } catch (criterionError) {
+        console.log(`Error con criterio ${criterion.key}:`, criterionError);
+      }
+    }
+    
+    // Eliminar duplicados por ID
+    const uniqueResults = results.filter((user, index, self) => 
+      index === self.findIndex(u => u.id === user.id)
+    );
+    
+    if (uniqueResults.length > 0) {
+      console.log(`Encontrados ${uniqueResults.length} usuarios únicos en búsqueda avanzada`);
+      return { success: true, data: uniqueResults };
+    }
+    
+    return { 
+      success: false, 
+      error: 'No se encontraron usuarios con los criterios especificados',
+      data: []
+    };
+    
+  } catch (error) {
+    console.error('Error en searchUsersAdvanced:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Error desconocido',
+      data: []
+    };
+  }
+}
+
+async function getSampleUsers() {
+  try {
+    // Obtener usuarios de diferentes rangos para tener mejor cobertura
+    // Como hay 6000 estudiantes, necesitamos buscar en rangos más amplios
+    const allUsers: MoodleUser[] = [];
+    
+    // Definir rangos más amplios para cubrir 6000 usuarios
+    const ranges = [
+      { start: 1, end: 500 },
+      { start: 501, end: 1000 },
+      { start: 1001, end: 1500 },
+      { start: 1501, end: 2000 },
+      { start: 2001, end: 2500 },
+      { start: 2501, end: 3000 },
+      { start: 3001, end: 3500 },
+      { start: 3501, end: 4000 },
+      { start: 4001, end: 4500 },
+      { start: 4501, end: 5000 },
+      { start: 5001, end: 5500 },
+      { start: 5501, end: 6000 }
+    ];
+    
+    console.log(`Buscando en ${ranges.length} rangos para cubrir hasta 6000 usuarios...`);
+    
+    for (let i = 0; i < ranges.length; i++) {
+      const range = ranges[i];
+      const userIds = Array.from({ length: range.end - range.start + 1 }, (_, j) => range.start + j);
+      
+      try {
+        console.log(`Obteniendo usuarios del rango ${range.start}-${range.end}...`);
+        const response = await callMoodleApi<MoodleUser[]>('core_user_get_users_by_field', {
+          field: 'id',
+          values: userIds
+        });
+        
+        if (response.success && response.data) {
+          allUsers.push(...response.data);
+          console.log(`Rango ${range.start}-${range.end}: ${response.data.length} usuarios encontrados`);
+        }
+      } catch (error) {
+        console.log(`Error obteniendo usuarios del rango ${range.start}-${range.end}:`, error);
+      }
+    }
+    
+    console.log(`Obtenidos ${allUsers.length} usuarios totales de todos los rangos`);
+    return allUsers;
+    
+  } catch (error) {
+    console.error('Error obteniendo muestra de usuarios:', error);
+    return [];
+  }
+}
+
+// Función optimizada para búsqueda por rangos que se detiene cuando encuentra resultados
+async function getOptimizedSampleUsers(searchTerm: string) {
+  try {
+    console.log(`Búsqueda optimizada por rangos para: ${searchTerm}`);
+    const searchLower = searchTerm.toLowerCase();
+    const allUsers: MoodleUser[] = [];
+    
+    // Definir rangos más pequeños para búsqueda más eficiente
+    const ranges = [
+      { start: 1, end: 1000 },
+      { start: 1001, end: 2000 },
+      { start: 2001, end: 3000 },
+      { start: 3001, end: 4000 },
+      { start: 4001, end: 5000 },
+      { start: 5001, end: 6000 }
+    ];
+    
+    console.log(`Buscando en ${ranges.length} rangos optimizados...`);
+    
+    for (let i = 0; i < ranges.length; i++) {
+      const range = ranges[i];
+      const userIds = Array.from({ length: range.end - range.start + 1 }, (_, j) => range.start + j);
+      
+      try {
+        console.log(`Obteniendo usuarios del rango ${range.start}-${range.end}...`);
+        const response = await callMoodleApi<MoodleUser[]>('core_user_get_users_by_field', {
+          field: 'id',
+          values: userIds
+        });
+        
+        if (response.success && response.data) {
+          // Filtrar inmediatamente los usuarios que coinciden
+          const matchingUsers = response.data.filter((user: MoodleUser) => {
+            return (
+              (user.firstname && user.firstname.toLowerCase().includes(searchLower)) ||
+              (user.lastname && user.lastname.toLowerCase().includes(searchLower)) ||
+              (user.fullname && user.fullname.toLowerCase().includes(searchLower)) ||
+              (user.email && user.email.toLowerCase().includes(searchLower)) ||
+              (user.username && user.username.toLowerCase().includes(searchLower))
+            );
+          });
+          
+          if (matchingUsers.length > 0) {
+            allUsers.push(...matchingUsers);
+            console.log(`Rango ${range.start}-${range.end}: ${matchingUsers.length} usuarios coincidentes encontrados`);
+            
+            // Si encontramos suficientes resultados, podemos detener la búsqueda
+            if (allUsers.length >= 50) {
+              console.log(`Encontrados suficientes resultados (${allUsers.length}), deteniendo búsqueda`);
+              break;
+            }
+          } else {
+            console.log(`Rango ${range.start}-${range.end}: ${response.data.length} usuarios obtenidos, 0 coincidencias`);
+          }
+        }
+      } catch (error) {
+        console.log(`Error obteniendo usuarios del rango ${range.start}-${range.end}:`, error);
+      }
+    }
+    
+    console.log(`Búsqueda optimizada completada: ${allUsers.length} usuarios encontrados`);
+    return allUsers;
+    
+  } catch (error) {
+    console.error('Error en búsqueda optimizada por rangos:', error);
+    return [];
+  }
+}
+
+// Función inteligente para búsqueda por nombre que usa estrategias optimizadas
+async function searchUsersByNameIntelligent(searchTerm: string) {
+  console.log(`Búsqueda inteligente por nombre: ${searchTerm}`);
+  const searchLower = searchTerm.toLowerCase();
+  const allUsers: MoodleUser[] = [];
+  
+  try {
+    // Estrategia 1: Buscar en rangos estratégicos más pequeños y detenerse cuando encuentre resultados
+    const strategicRanges = [
+      { start: 1, end: 500 },      // Primeros 500 usuarios
+      { start: 501, end: 1000 },   // Siguientes 500
+      { start: 1001, end: 1500 },  // Y así sucesivamente...
+      { start: 1501, end: 2000 },
+      { start: 2001, end: 2500 },
+      { start: 2501, end: 3000 },
+      { start: 3001, end: 3500 },
+      { start: 3501, end: 4000 },
+      { start: 4001, end: 4500 },
+      { start: 4501, end: 5000 },
+      { start: 5001, end: 5500 },
+      { start: 5501, end: 6000 }
+    ];
+    
+    console.log(`Búsqueda inteligente: explorando rangos estratégicos...`);
+    
+    for (let i = 0; i < strategicRanges.length; i++) {
+      const range = strategicRanges[i];
+      const userIds = Array.from({ length: range.end - range.start + 1 }, (_, j) => range.start + j);
+      
+      try {
+        console.log(`Explorando rango ${range.start}-${range.end}...`);
+        const response = await callMoodleApi<MoodleUser[]>('core_user_get_users_by_field', {
+          field: 'id',
+          values: userIds
+        });
+        
+        if (response.success && response.data) {
+          // Filtrar usuarios que coinciden con el término de búsqueda
+          const matchingUsers = response.data.filter((user: MoodleUser) => {
+            return (
+              (user.firstname && user.firstname.toLowerCase().includes(searchLower)) ||
+              (user.lastname && user.lastname.toLowerCase().includes(searchLower)) ||
+              (user.fullname && user.fullname.toLowerCase().includes(searchLower))
+            );
+          });
+          
+          if (matchingUsers.length > 0) {
+            allUsers.push(...matchingUsers);
+            console.log(`✅ Rango ${range.start}-${range.end}: ${matchingUsers.length} coincidencias encontradas`);
+            
+            // Si encontramos suficientes resultados, detener la búsqueda
+            if (allUsers.length >= 20) {
+              console.log(`🎯 Encontrados suficientes resultados (${allUsers.length}), deteniendo búsqueda inteligente`);
+              break;
+            }
+          } else {
+            console.log(`❌ Rango ${range.start}-${range.end}: 0 coincidencias`);
+          }
+        }
+      } catch (error) {
+        console.log(`⚠️ Error en rango ${range.start}-${range.end}:`, error);
+      }
+    }
+    
+    console.log(`Búsqueda inteligente completada: ${allUsers.length} usuarios encontrados`);
+    return allUsers;
+    
+  } catch (error) {
+    console.error('Error en búsqueda inteligente por nombre:', error);
+    return [];
+  }
+} 
+
+// Función para suspender o reactivar un usuario globalmente
+export async function toggleUserSuspension(userId: number, suspend: boolean) {
+  console.log(`${suspend ? 'Suspender' : 'Reactivar'} usuario con ID: ${userId}`);
+  
+  try {
+    // Intentar primero con solo el campo suspended
+    const userData = {
+      id: userId,
+      suspended: suspend ? 1 : 0  // Usar 1 para suspendido, 0 para activo
+    };
+    
+    console.log('Datos del usuario a actualizar (método 1):', userData);
+    
+    const response = await callMoodleApi<{ success: boolean }>('core_user_update_users', {
+      users: [userData]
+    });
+    
+    console.log('Respuesta completa de core_user_update_users:', response);
+    
+    if (response.success) {
+      console.log(`Usuario ${userId} ${suspend ? 'suspendido' : 'reactivado'} exitosamente`);
+      return { success: true, message: `Usuario ${suspend ? 'suspendido' : 'reactivado'} exitosamente` };
+    } else {
+      console.error('Error al actualizar usuario (método 1):', response);
+      
+      // Si falla, intentar con campos adicionales
+      console.log('Intentando método alternativo con campos adicionales...');
+      const userDataExtended = {
+        id: userId,
+        suspended: suspend ? 1 : 0,
+        confirmed: 1,  // Mantener confirmado
+        auth: 'manual'  // Mantener autenticación manual
+      };
+      
+      console.log('Datos del usuario a actualizar (método 2):', userDataExtended);
+      
+      const response2 = await callMoodleApi<{ success: boolean }>('core_user_update_users', {
+        users: [userDataExtended]
+      });
+      
+      console.log('Respuesta del método alternativo:', response2);
+      
+      if (response2.success) {
+        console.log(`Usuario ${userId} ${suspend ? 'suspendido' : 'reactivado'} exitosamente (método 2)`);
+        return { success: true, message: `Usuario ${suspend ? 'suspendido' : 'reactivado'} exitosamente` };
+      } else {
+        console.error('Error al actualizar usuario (método 2):', response2);
+        return { success: false, error: 'Error al actualizar el usuario' };
+      }
+    }
+    
+  } catch (error) {
+    console.error('Error en toggleUserSuspension:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    };
+    }
+}
+
+// Función para suspender o reactivar un usuario en un curso específico (sin eliminar)
+export async function toggleCourseUserSuspension(courseId: number, userId: number, suspend: boolean) {
+  console.log(`${suspend ? 'Suspender' : 'Reactivar'} usuario ${userId} en curso ${courseId} (sin eliminar)`);
+  
+  try {
+    // Para suspensión específica de curso, usamos enrol_manual_enrol_users con el parámetro suspend
+    if (suspend) {
+      // Suspender: actualizar la inscripción existente con estado suspendido
+      console.log(`Suspendiendo usuario ${userId} en curso ${courseId}`);
+      
+      const enrolResponse = await callMoodleApi<{ success: boolean }>('enrol_manual_enrol_users', {
+        enrolments: [{
+          userid: userId,
+          courseid: courseId,
+          roleid: 5,  // Role ID para estudiantes
+          timestart: Math.floor(Date.now() / 1000),
+          timeend: 0,  // Sin fecha de fin
+          suspend: 1  // Suspender la inscripción
+        }]
+      });
+      
+      console.log('Respuesta de enrol_users (suspender):', enrolResponse);
+      
+      if (enrolResponse.success) {
+        console.log(`Usuario ${userId} suspendido en el curso ${courseId} exitosamente`);
+        return { 
+          success: true, 
+          message: `Usuario suspendido en el curso exitosamente` 
+        };
+      } else {
+        console.error('Error al suspender usuario en el curso:', enrolResponse);
+        return { success: false, error: 'Error al suspender el usuario en el curso' };
+      }
+    } else {
+      // Reactivar: actualizar la inscripción con estado normal
+      console.log(`Reactivando usuario ${userId} en curso ${courseId}`);
+      
+      const enrolResponse = await callMoodleApi<{ success: boolean }>('enrol_manual_enrol_users', {
+        enrolments: [{
+          userid: userId,
+          courseid: courseId,
+          roleid: 5,  // Role ID para estudiantes
+          timestart: Math.floor(Date.now() / 1000),
+          timeend: 0,  // Sin fecha de fin
+          suspend: 0  // No suspender
+        }]
+      });
+      
+      console.log('Respuesta de enrol_users (reactivar):', enrolResponse);
+      
+      if (enrolResponse.success) {
+        console.log(`Usuario ${userId} reactivado en el curso ${courseId} exitosamente`);
+        return { 
+          success: true, 
+          message: `Usuario reactivado en el curso exitosamente` 
+        };
+      } else {
+        console.error('Error al reactivar usuario en el curso:', enrolResponse);
+        return { success: false, error: 'Error al reactivar el usuario en el curso' };
+      }
+    }
+    
+  } catch (error) {
+    console.error('Error en toggleCourseUserSuspension:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    };
+  }
+}
+
+// Función para eliminar completamente un usuario de un curso
+export async function removeUserFromCourse(courseId: number, userId: number) {
+  console.log(`Eliminando usuario ${userId} del curso ${courseId}`);
+  
+  try {
+    const response = await callMoodleApi<{ success: boolean }>('enrol_manual_unenrol_users', {
+      enrolments: [{
+        userid: userId,
+        courseid: courseId,
+        roleid: 5  // Role ID para estudiantes
+      }]
+    });
+    
+    console.log('Respuesta de unenrol_users:', response);
+    
+    if (response.success) {
+      console.log(`Usuario ${userId} eliminado del curso ${courseId} exitosamente`);
+      return { success: true, message: `Usuario eliminado del curso exitosamente` };
+    } else {
+      console.error('Error al eliminar usuario del curso:', response);
+      return { success: false, error: 'Error al eliminar el usuario del curso' };
+    }
+    
+  } catch (error) {
+    console.error('Error en removeUserFromCourse:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Error desconocido'
+    };
+  }
+}
+
+// Función para obtener usuarios con filtro de estado
+export async function getUsersWithStatusFilter(suspended?: boolean) {
+  console.log(`Obteniendo usuarios con filtro de estado: ${suspended === undefined ? 'todos' : suspended ? 'suspendidos' : 'activos'}`);
+  
+  try {
+    // Obtener una muestra amplia de usuarios
+    const allUsers = await getSampleUsers();
+    
+    if (!allUsers || !Array.isArray(allUsers)) {
+      return { success: false, error: 'No se pudieron obtener usuarios', data: [] };
+    }
+    
+    // Filtrar por estado si se especifica
+    let filteredUsers = allUsers;
+    if (suspended !== undefined) {
+      filteredUsers = allUsers.filter((user: MoodleUser) => user.suspended === suspended);
+    }
+    
+    console.log(`Encontrados ${filteredUsers.length} usuarios con el filtro aplicado`);
+    return { success: true, data: filteredUsers };
+    
+  } catch (error) {
+    console.error('Error en getUsersWithStatusFilter:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Error desconocido',
+      data: []
+    };
+  }
 } 

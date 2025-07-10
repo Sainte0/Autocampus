@@ -50,22 +50,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Check for stored token on app load
-    const storedToken = getCookie('auth_token');
-    const storedUser = getCookie('auth_user');
-    
-    if (storedToken && storedUser) {
-      try {
-        setToken(storedToken);
-        setUser(JSON.parse(storedUser));
-      } catch (error) {
-        console.error('Error parsing stored user data:', error);
-        // Clear invalid cookies
-        deleteCookie('auth_token');
-        deleteCookie('auth_user');
+    const checkAuth = async () => {
+      const storedToken = getCookie('auth_token');
+      const storedUser = getCookie('auth_user');
+      
+      if (storedToken && storedUser) {
+        try {
+          const parsedUser = JSON.parse(storedUser);
+          
+          // Verify token is still valid by making a test request
+          try {
+            const response = await fetch('/api/auth/verify', {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${storedToken}`,
+              },
+            });
+            
+            if (response.ok) {
+              setToken(storedToken);
+              setUser(parsedUser);
+            } else {
+              // Token is invalid, clear cookies
+              deleteCookie('auth_token');
+              deleteCookie('auth_user');
+            }
+          } catch (error) {
+            console.error('Error verifying token:', error);
+            // If verification fails, still set the user but mark as potentially stale
+            setToken(storedToken);
+            setUser(parsedUser);
+          }
+        } catch (error) {
+          console.error('Error parsing stored user data:', error);
+          // Clear invalid cookies
+          deleteCookie('auth_token');
+          deleteCookie('auth_user');
+        }
       }
-    }
+      
+      setIsLoading(false);
+    };
+
+    // Small delay to ensure cookies are available
+    const timer = setTimeout(checkAuth, 100);
     
-    setIsLoading(false);
+    return () => clearTimeout(timer);
   }, []);
 
   const login = async (username: string, password: string): Promise<boolean> => {

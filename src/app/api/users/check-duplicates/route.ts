@@ -15,12 +15,29 @@ export async function POST(request: NextRequest) {
     }
 
     const token = authHeader.substring(7);
-    const payload = verifyToken(token);
     
-    if (!payload || payload.role !== 'admin') {
+    // Verificar que el token no esté vacío
+    if (!token || token.trim() === '') {
       return NextResponse.json(
-        { error: 'Admin access required' },
-        { status: 403 }
+        { error: 'Invalid token format' },
+        { status: 401 }
+      );
+    }
+
+    try {
+      const payload = verifyToken(token);
+      
+      if (!payload || payload.role !== 'admin') {
+        return NextResponse.json(
+          { error: 'Admin access required' },
+          { status: 403 }
+        );
+      }
+    } catch (jwtError) {
+      console.error('JWT verification error:', jwtError);
+      return NextResponse.json(
+        { error: 'Invalid or expired token' },
+        { status: 401 }
       );
     }
 

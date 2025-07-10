@@ -12,6 +12,16 @@ export interface MoodleUser {
   firstname: string;
   lastname: string;
   email: string;
+  fullname?: string;
+  suspended?: boolean;
+  enrolments?: Array<{
+    id: number;
+    courseid: number;
+    roleid: number;
+    suspended: boolean;
+    timestart: number;
+    timeend: number;
+  }>;
 }
 
 export interface CreateUserRequest {

@@ -30,7 +30,6 @@ export async function GET(
     }
 
     const { id } = await params;
-
     if (!id) {
       return NextResponse.json(
         { error: 'Activity ID is required' },

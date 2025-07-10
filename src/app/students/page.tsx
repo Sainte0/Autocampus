@@ -4,6 +4,10 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { StudentForm } from '../../components/StudentForm';
 import { createUser } from '../../lib/moodle';
+import { Input } from '../../components/ui/Input';
+import { Button } from '../../components/ui/Button';
+import { useUserSync } from '../../hooks/useUserSync';
+import { UserStateNotification } from '../../components/UserStateNotification';
 
 interface ActivityDetails {
   studentUsername?: string;
@@ -16,11 +20,33 @@ interface ActivityDetails {
   moodleUserId?: number;
 }
 
+interface Student {
+  id: number;
+  username: string;
+  firstname: string;
+  lastname: string;
+  email: string;
+  fullname: string;
+  suspended?: boolean;
+}
+
 export default function StudentsPage() {
   const { user, isLoading, token } = useAuth();
   const [isAuthorized, setIsAuthorized] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  
+  // Estados para la lista de estudiantes
+  const [students, setStudents] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [serverMessage, setServerMessage] = useState('');
+  const [updatingUser, setUpdatingUser] = useState<number | null>(null);
+  const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
+  const [activeTab, setActiveTab] = useState<'create' | 'list'>('create');
+
+  // Hook para sincronización de usuarios
+  const { updateUserSuspension, getSyncedUsers } = useUserSync(students);
 
   useEffect(() => {
     if (!isLoading) {
@@ -31,6 +57,24 @@ export default function StudentsPage() {
       setIsAuthorized(true);
     }
   }, [user, isLoading]);
+
+  useEffect(() => {
+    // Obtener usuarios sincronizados y aplicar filtros
+    const syncedStudents = getSyncedUsers();
+    
+    let filtered = syncedStudents;
+    
+    // Filtrar por término de búsqueda
+    if (searchTerm.trim()) {
+      filtered = filtered.filter(student => 
+        student.fullname?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        student.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        student.username?.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+    
+    setFilteredStudents(filtered);
+  }, [students, searchTerm, getSyncedUsers]);
 
   const logActivity = async (action: string, details: ActivityDetails, status: 'success' | 'error' = 'success', errorMessage?: string) => {
     try {
@@ -106,6 +150,68 @@ export default function StudentsPage() {
     }
   };
 
+  const searchStudents = async () => {
+    if (!searchTerm.trim()) return;
+    
+    setLoading(true);
+    setError('');
+    
+    try {
+      // Construir URL con parámetros de query
+      const params = new URLSearchParams();
+      params.append('type', 'simple');
+      params.append('q', searchTerm);
+      
+      const response = await fetch(`/api/users/search?${params.toString()}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error('Error al buscar estudiantes');
+      }
+
+      const data = await response.json();
+      setStudents(data.users || []);
+      setServerMessage(data.message || 'Búsqueda completada');
+    } catch (err) {
+      setError('Error al buscar estudiantes');
+      console.error('Error searching students:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    searchStudents();
+  };
+
+  const toggleUserSuspension = async (userId: number, currentSuspended: boolean) => {
+    setUpdatingUser(userId);
+    
+    const result = await updateUserSuspension(userId, currentSuspended);
+    
+    if (result.success) {
+      // Actualizar el estado local del usuario
+      setStudents(prevStudents => 
+        prevStudents.map(student => 
+          student.id === userId 
+            ? { ...student, suspended: !currentSuspended }
+            : student
+        )
+      );
+      
+      setServerMessage(result.message);
+    } else {
+      setError(result.error || 'Error al actualizar el usuario');
+    }
+    
+    setUpdatingUser(null);
+  };
+
   if (isLoading || !isAuthorized) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
@@ -119,7 +225,7 @@ export default function StudentsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         {/* Banner de Aviso */}
         <div className="mb-6 bg-yellow-50 dark:bg-yellow-900/30 border-l-4 border-yellow-500 dark:border-yellow-400 p-4 rounded-md">
           <div className="flex items-start">
@@ -149,26 +255,232 @@ export default function StudentsPage() {
             Gestión de Alumnos
           </h1>
           <p className="text-gray-600 dark:text-gray-300">
-            Crea nuevos alumnos y gestiona sus inscripciones en Moodle
+            Crea nuevos alumnos, busca y gestiona sus estados en Moodle
           </p>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
             Conectado como: {user?.firstName} {user?.lastName} (@{user?.username})
           </p>
         </div>
-        
+
+        {/* Tabs */}
+        <div className="mb-6">
+          <div className="border-b border-gray-200 dark:border-gray-700">
+            <nav className="-mb-px flex space-x-8">
+              <button
+                onClick={() => setActiveTab('create')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'create'
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                }`}
+              >
+                Crear Alumno
+              </button>
+              <button
+                onClick={() => setActiveTab('list')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'list'
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                }`}
+              >
+                Lista de Alumnos
+              </button>
+            </nav>
+          </div>
+        </div>
+
+        {/* Error Message */}
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-md">
-            <p className="text-red-700 dark:text-gray-200">{error}</p>
+          <div className="mb-6 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+            {error}
           </div>
         )}
 
+        {/* Success Message */}
         {success && (
-          <div className="mb-6 p-4 bg-green-50 border-l-4 border-green-500 rounded-md">
-            <p className="text-green-700 dark:text-gray-200">{success}</p>
+          <div className="mb-6 bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded">
+            {success}
           </div>
         )}
-        
-        <StudentForm onSubmit={handleCreateStudent} />
+
+        {/* Server Message */}
+        {serverMessage && (
+          <div className="mb-6 bg-blue-100 border border-blue-400 text-blue-700 px-4 py-3 rounded">
+            <div className="flex items-start">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <p className="text-sm">{serverMessage}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Tab Content */}
+        {activeTab === 'create' ? (
+          /* Crear Alumno Tab */
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6">
+            <StudentForm onSubmit={handleCreateStudent} token={token || undefined} />
+          </div>
+        ) : (
+          /* Lista de Alumnos Tab */
+          <div>
+            {/* Notificaciones de estado de usuarios */}
+            {filteredStudents.map(student => (
+              <UserStateNotification
+                key={`notification-${student.id}`}
+                userId={student.id}
+                userName={student.fullname}
+                isSuspended={student.suspended || false}
+                isCourseSuspension={false}
+              />
+            ))}
+
+            {/* Search Form */}
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
+              <form onSubmit={handleSearch} className="flex flex-col sm:flex-row gap-4">
+                <div className="flex-1">
+                  <Input
+                    type="text"
+                    placeholder="Buscar por nombre, email, usuario..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    type="submit"
+                    disabled={loading || !searchTerm.trim()}
+                    className="w-full sm:w-auto"
+                  >
+                    {loading ? 'Buscando...' : 'Buscar'}
+                  </Button>
+                  {students.length > 0 && (
+                    <Button
+                      onClick={searchStudents}
+                      disabled={loading}
+                      className="w-full sm:w-auto bg-gray-500 hover:bg-gray-600"
+                    >
+                      {loading ? 'Refrescando...' : 'Refrescar'}
+                    </Button>
+                  )}
+                </div>
+              </form>
+              
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                La búsqueda se realiza automáticamente en todos los campos (nombre, email, usuario)
+              </p>
+              <p className="text-xs text-green-600 dark:text-green-400 mt-1">
+                ✅ Suspensión GLOBAL: Los cambios afectan al usuario en todo Moodle
+              </p>
+            </div>
+
+            {/* Results */}
+            {filteredStudents.length > 0 && (
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    Resultados ({filteredStudents.length} de {students.length})
+                  </h2>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                    <thead className="bg-gray-50 dark:bg-gray-700">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                          ID
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                          Nombre Completo
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                          Usuario
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                          Email
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                          Estado
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                          Acciones
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                      {filteredStudents.map((student) => (
+                        <tr key={student.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                            {student.id}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                            {student.fullname}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                            {student.username}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                            {student.email}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                              student.suspended 
+                                ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' 
+                                : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                            }`}>
+                              {student.suspended ? 'Suspendido' : 'Activo'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                            <Button
+                              onClick={() => toggleUserSuspension(student.id, student.suspended || false)}
+                              disabled={updatingUser === student.id}
+                              className={`px-3 py-1 text-xs font-medium rounded ${
+                                student.suspended
+                                  ? 'bg-green-600 hover:bg-green-700 text-white'
+                                  : 'bg-red-600 hover:bg-red-700 text-white'
+                              }`}
+                            >
+                              {updatingUser === student.id 
+                                ? 'Actualizando...' 
+                                : student.suspended 
+                                  ? 'Reactivar Globalmente' 
+                                  : 'Suspender Globalmente'
+                              }
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* No Results */}
+            {filteredStudents.length === 0 && students.length > 0 && !loading && !error && (
+              <div className="text-center py-8">
+                <p className="text-gray-500 dark:text-gray-400">
+                  No se encontraron estudiantes con los criterios de búsqueda especificados.
+                </p>
+              </div>
+            )}
+
+            {/* No Students */}
+            {students.length === 0 && !loading && !error && (
+              <div className="text-center py-8">
+                <p className="text-gray-500 dark:text-gray-400">
+                  Realiza una búsqueda para ver estudiantes
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
