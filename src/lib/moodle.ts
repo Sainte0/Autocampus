@@ -1294,7 +1294,7 @@ export async function searchUsersAdvanced(criteria: { key: string; value: string
     
     return { 
       success: false, 
-      error: 'No se encontraron usuarios con los criterios especificados',
+      error: 'No se encontraron usuarios con los criterios especificados ',
       data: []
     };
     
