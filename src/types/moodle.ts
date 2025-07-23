@@ -14,6 +14,7 @@ export interface MoodleUser {
   email: string;
   fullname?: string;
   suspended?: boolean;
+  lastaccess?: number; // Timestamp del último acceso
   enrolments?: Array<{
     id: number;
     courseid: number;

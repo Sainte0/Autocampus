@@ -8,6 +8,7 @@ interface MoodleUser {
   lastname?: string;
   email?: string;
   fullname?: string;
+  lastaccess?: number;
 }
 
 export async function GET(request: NextRequest) {
@@ -107,7 +108,8 @@ export async function GET(request: NextRequest) {
       firstname: user.firstname || '',
       lastname: user.lastname || '',
       email: user.email || '',
-      fullname: user.fullname || `${user.firstname || ''} ${user.lastname || ''}`.trim()
+      fullname: user.fullname || `${user.firstname || ''} ${user.lastname || ''}`.trim(),
+      lastaccess: user.lastaccess || 0
     }));
 
     console.log(`=== FINAL: Encontrados ${formattedStudents.length} estudiantes para el curso ${courseIdNum} ===`);

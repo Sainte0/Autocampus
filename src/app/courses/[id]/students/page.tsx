@@ -6,6 +6,29 @@ import Link from 'next/link';
 import { Button } from '../../../../components/ui/Button';
 import { useCourseUserSync } from '../../../../hooks/useUserSync';
 import { UserStateNotification } from '../../../../components/UserStateNotification';
+// Función auxiliar para formatear la fecha del último acceso
+function formatLastAccess(lastaccess?: number): string {
+  if (!lastaccess || lastaccess === 0) {
+    return 'Nunca';
+  }
+  
+  const date = new Date(lastaccess * 1000); // Convertir timestamp a milisegundos
+  const now = new Date();
+  const diffInMs = now.getTime() - date.getTime();
+  const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
+  const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
+  const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
+  
+  if (diffInDays > 0) {
+    return `Hace ${diffInDays} día${diffInDays > 1 ? 's' : ''}`;
+  } else if (diffInHours > 0) {
+    return `Hace ${diffInHours} hora${diffInHours > 1 ? 's' : ''}`;
+  } else if (diffInMinutes > 0) {
+    return `Hace ${diffInMinutes} minuto${diffInMinutes > 1 ? 's' : ''}`;
+  } else {
+    return 'Hace unos momentos';
+  }
+}
 
 interface Student {
   id: number;
@@ -15,6 +38,7 @@ interface Student {
   email: string;
   fullname: string;
   suspended?: boolean;
+  lastaccess?: number;
 }
 
 interface Course {
@@ -231,27 +255,37 @@ export default function CourseStudentsPage() {
 
         {/* Results */}
         {students.length > 0 && (
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden">
-            <div className="overflow-x-auto">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md">
+            <div className="px-4 sm:px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                Estudiantes del Curso ({students.length})
+              </h2>
+            </div>
+            
+            {/* Desktop Table */}
+            <div className="hidden lg:block overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                 <thead className="bg-gray-50 dark:bg-gray-700">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       ID
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Nombre Completo
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Usuario
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Email
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Estado
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                      Último Acceso
+                    </th>
+                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Acciones
                     </th>
                   </tr>
@@ -259,19 +293,19 @@ export default function CourseStudentsPage() {
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                   {students.map((student) => (
                     <tr key={student.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                      <td className="px-3 py-4 text-sm text-gray-900 dark:text-white">
                         {student.id}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                      <td className="px-3 py-4 text-sm text-gray-900 dark:text-white">
                         {student.fullname}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                      <td className="px-3 py-4 text-sm text-gray-900 dark:text-white">
                         {student.username}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                      <td className="px-3 py-4 text-sm text-gray-900 dark:text-white">
                         {student.email}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="px-3 py-4">
                         <span className={`px-2 py-1 text-xs font-medium rounded-full ${
                           student.suspended 
                             ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' 
@@ -280,7 +314,10 @@ export default function CourseStudentsPage() {
                           {student.suspended ? 'Suspendido' : 'Activo'}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                      <td className="px-3 py-4 text-sm text-gray-900 dark:text-white">
+                        {student.lastaccess ? formatLastAccess(student.lastaccess) : 'Nunca'}
+                      </td>
+                      <td className="px-3 py-4 text-sm text-gray-900 dark:text-white">
                         <div className="flex gap-2">
                           <Button
                             onClick={() => toggleUserSuspension(student.id, student.suspended || false)}
@@ -311,6 +348,72 @@ export default function CourseStudentsPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile/Tablet Cards */}
+            <div className="lg:hidden">
+              <div className="space-y-4 p-4">
+                {students.map((student) => (
+                  <div key={student.id} className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex-1">
+                        <h3 className="text-sm font-medium text-gray-900 dark:text-white">
+                          {student.fullname}
+                        </h3>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
+                          ID: {student.id} | @{student.username}
+                        </p>
+                      </div>
+                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                        student.suspended 
+                          ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' 
+                          : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                      }`}>
+                        {student.suspended ? 'Suspendido' : 'Activo'}
+                      </span>
+                    </div>
+                    
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-500 dark:text-gray-400">Email:</span>
+                        <span className="text-gray-900 dark:text-white">{student.email}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-500 dark:text-gray-400">Último acceso:</span>
+                        <span className="text-gray-900 dark:text-white">
+                          {student.lastaccess ? formatLastAccess(student.lastaccess) : 'Nunca'}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    <div className="mt-4 pt-3 border-t border-gray-200 dark:border-gray-600 space-y-2">
+                      <Button
+                        onClick={() => toggleUserSuspension(student.id, student.suspended || false)}
+                        disabled={updatingUser === student.id}
+                        className={`w-full px-3 py-2 text-sm font-medium rounded ${
+                          student.suspended
+                            ? 'bg-green-600 hover:bg-green-700 text-white'
+                            : 'bg-orange-600 hover:bg-orange-700 text-white'
+                        }`}
+                      >
+                        {updatingUser === student.id 
+                          ? 'Actualizando...' 
+                          : student.suspended 
+                            ? 'Reactivar' 
+                            : 'Suspender'
+                        }
+                      </Button>
+                      <Button
+                        onClick={() => handleRemoveUser(student.id, student.fullname)}
+                        disabled={updatingUser === student.id}
+                        className="w-full px-3 py-2 text-sm font-medium rounded bg-red-600 hover:bg-red-700 text-white"
+                      >
+                        {updatingUser === student.id ? 'Eliminando...' : 'Eliminar del Curso'}
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}

@@ -9,6 +9,7 @@ interface MoodleUser {
   email?: string;
   fullname?: string;
   suspended?: boolean;
+  lastaccess?: number;
 }
 
 export async function GET(request: NextRequest) {
@@ -159,7 +160,8 @@ async function handleSearch(request: NextRequest) {
       lastname: user.lastname || '',
       email: user.email || '',
       fullname: user.fullname || `${user.firstname || ''} ${user.lastname || ''}`.trim(),
-      suspended: user.suspended || false  // Asegurar que siempre esté presente
+      suspended: user.suspended || false,  // Asegurar que siempre esté presente
+      lastaccess: user.lastaccess || 0  // Incluir información del último acceso
     }));
 
     console.log(`=== FINAL: Encontrados ${formattedUsers.length} usuarios ===`);

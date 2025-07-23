@@ -1164,6 +1164,24 @@ export async function searchUsersSimple(searchTerm: string) {
       
       if (emailResponse.success && emailResponse.data && Array.isArray(emailResponse.data) && emailResponse.data.length > 0) {
         console.log(`Encontrados ${emailResponse.data.length} usuarios por email`);
+        
+        // Obtener información detallada incluyendo último acceso
+        const userIds = emailResponse.data.map(user => user.id);
+        const detailedResponse = await getUsersWithLastAccess(userIds);
+        
+        if (detailedResponse.success && detailedResponse.data) {
+          // Combinar la información básica con la detallada
+          const enrichedUsers = emailResponse.data.map(user => {
+            const detailedUser = detailedResponse.data?.find(detailed => detailed.id === user.id);
+            return {
+              ...user,
+              lastaccess: detailedUser?.lastaccess
+            };
+          });
+          
+          return { success: true, data: enrichedUsers };
+        }
+        
         return { success: true, data: emailResponse.data };
       }
     } catch (emailError) {
@@ -1180,6 +1198,24 @@ export async function searchUsersSimple(searchTerm: string) {
       
       if (usernameResponse.success && usernameResponse.data && Array.isArray(usernameResponse.data) && usernameResponse.data.length > 0) {
         console.log(`Encontrados ${usernameResponse.data.length} usuarios por username`);
+        
+        // Obtener información detallada incluyendo último acceso
+        const userIds = usernameResponse.data.map(user => user.id);
+        const detailedResponse = await getUsersWithLastAccess(userIds);
+        
+        if (detailedResponse.success && detailedResponse.data) {
+          // Combinar la información básica con la detallada
+          const enrichedUsers = usernameResponse.data.map(user => {
+            const detailedUser = detailedResponse.data?.find(detailed => detailed.id === user.id);
+            return {
+              ...user,
+              lastaccess: detailedUser?.lastaccess
+            };
+          });
+          
+          return { success: true, data: enrichedUsers };
+        }
+        
         return { success: true, data: usernameResponse.data };
       }
     } catch (usernameError) {
@@ -1191,6 +1227,24 @@ export async function searchUsersSimple(searchTerm: string) {
     const nameResults = await searchUsersByNameIntelligent(searchTerm);
     if (nameResults && nameResults.length > 0) {
       console.log(`Encontrados ${nameResults.length} usuarios por búsqueda inteligente`);
+      
+      // Obtener información detallada incluyendo último acceso
+      const userIds = nameResults.map(user => user.id);
+      const detailedResponse = await getUsersWithLastAccess(userIds);
+      
+      if (detailedResponse.success && detailedResponse.data) {
+        // Combinar la información básica con la detallada
+        const enrichedUsers = nameResults.map(user => {
+          const detailedUser = detailedResponse.data?.find(detailed => detailed.id === user.id);
+          return {
+            ...user,
+            lastaccess: detailedUser?.lastaccess
+          };
+        });
+        
+        return { success: true, data: enrichedUsers };
+      }
+      
       return { success: true, data: nameResults };
     }
     
@@ -1694,5 +1748,73 @@ export async function getUsersWithStatusFilter(suspended?: boolean) {
       error: error instanceof Error ? error.message : 'Error desconocido',
       data: []
     };
+  }
+} 
+
+// Función para obtener información detallada de usuarios incluyendo último acceso
+export async function getUsersWithLastAccess(userIds: number[]): Promise<ApiResponse<MoodleUser[]>> {
+  console.log('Obteniendo información detallada de usuarios con último acceso:', userIds);
+  
+  try {
+    // Usar core_user_get_users para obtener información detallada incluyendo lastaccess
+    const response = await callMoodleApi<MoodleUser[]>('core_user_get_users', {
+      criteria: [
+        { key: 'deleted', value: '0' }
+      ]
+    });
+
+    console.log('Respuesta de core_user_get_users:', response);
+
+    if (response.success && response.data && response.data.length > 0) {
+      // Filtrar solo los usuarios solicitados si se proporcionan IDs específicos
+      let filteredUsers = response.data;
+      if (userIds.length > 0) {
+        filteredUsers = response.data.filter(user => userIds.includes(user.id));
+      }
+      
+      console.log(`Encontrados ${filteredUsers.length} usuarios con información detallada`);
+      return {
+        success: true,
+        data: filteredUsers
+      };
+    }
+
+    return {
+      success: false,
+      error: 'No se pudieron obtener usuarios con información detallada',
+      data: []
+    };
+
+  } catch (error) {
+    console.error('Error obteniendo usuarios con último acceso:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error al obtener usuarios con último acceso',
+      data: []
+    };
+  }
+} 
+
+// Función auxiliar para formatear la fecha del último acceso
+export function formatLastAccess(lastaccess?: number): string {
+  if (!lastaccess || lastaccess === 0) {
+    return 'Nunca';
+  }
+  
+  const date = new Date(lastaccess * 1000); // Convertir timestamp a milisegundos
+  const now = new Date();
+  const diffInMs = now.getTime() - date.getTime();
+  const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
+  const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
+  const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
+  
+  if (diffInDays > 0) {
+    return `Hace ${diffInDays} día${diffInDays > 1 ? 's' : ''}`;
+  } else if (diffInHours > 0) {
+    return `Hace ${diffInHours} hora${diffInHours > 1 ? 's' : ''}`;
+  } else if (diffInMinutes > 0) {
+    return `Hace ${diffInMinutes} minuto${diffInMinutes > 1 ? 's' : ''}`;
+  } else {
+    return 'Hace unos momentos';
   }
 } 
