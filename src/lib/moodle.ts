@@ -17,6 +17,14 @@ interface Enrolment {
   [key: string]: unknown;
 }
 
+interface EnrolmentMethod {
+  id: number;
+  name: string;
+  status: number;
+  type: string;
+  [key: string]: unknown;
+}
+
 export async function callMoodleApi<T>(wsfunction: string, params: MoodleApiParams = {}): Promise<ApiResponse<T>> {
   const queryParams = new URLSearchParams({
     wstoken: MOODLE_TOKEN || '',
@@ -1893,7 +1901,7 @@ export async function getEnrolmentStatus(courseId: number, userId: number): Prom
     console.log(`Usuario ${userId} está en lista con capability: ${isInCapabilityList}`);
 
     // Método 3: Intentar obtener información específica del enrollment usando core_enrol_get_enrolment_methods
-    const enrolmentMethodsResponse = await callMoodleApi<any[]>('core_enrol_get_enrolment_methods', {
+    const enrolmentMethodsResponse = await callMoodleApi<EnrolmentMethod[]>('core_enrol_get_enrolment_methods', {
       courseid: courseId
     });
 
