@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getEnrolledStudents, getCourseStudentsTemporary } from '../../../../lib/moodle';
+import { getEnrolledStudents, getCourseStudentsTemporary, getEnrolmentStatus } from '../../../../lib/moodle';
 
 interface MoodleUser {
   id: number;
@@ -101,15 +101,35 @@ export async function GET(request: NextRequest) {
       console.log(`Usuarios después del filtrado: ${users.length} (filtrados: ${beforeFilter - users.length})`);
     }
 
+    // Obtener el estado de suspensión para cada usuario
+    const usersWithSuspensionStatus = await Promise.all(
+      (users as MoodleUser[]).map(async (user: MoodleUser) => {
+        try {
+          const suspensionStatus = await getEnrolmentStatus(courseIdNum, user.id);
+          return {
+            ...user,
+            suspended: suspensionStatus.suspended || false
+          };
+        } catch (error) {
+          console.error(`Error obteniendo estado de suspensión para usuario ${user.id}:`, error);
+          return {
+            ...user,
+            suspended: false // Por defecto, asumir que no está suspendido
+          };
+        }
+      })
+    );
+
     // Formatear los datos de los estudiantes
-    const formattedStudents = (users as MoodleUser[]).map((user: MoodleUser) => ({
+    const formattedStudents = usersWithSuspensionStatus.map((user: MoodleUser & { suspended: boolean }) => ({
       id: user.id,
       username: user.username,
       firstname: user.firstname || '',
       lastname: user.lastname || '',
       email: user.email || '',
       fullname: user.fullname || `${user.firstname || ''} ${user.lastname || ''}`.trim(),
-      lastaccess: user.lastaccess || 0
+      lastaccess: user.lastaccess || 0,
+      suspended: user.suspended
     }));
 
     console.log(`=== FINAL: Encontrados ${formattedStudents.length} estudiantes para el curso ${courseIdNum} ===`);

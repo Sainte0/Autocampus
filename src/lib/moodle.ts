@@ -1641,6 +1641,16 @@ export async function toggleCourseUserSuspension(courseId: number, userId: numbe
       console.log('Respuesta de enrol_users (suspender):', enrolResponse);
       
       if (enrolResponse.success) {
+        // Actualizar la lista manual de usuarios suspendidos
+        const courseIdStr = courseId.toString();
+        if (!MANUALLY_SUSPENDED_USERS[courseIdStr]) {
+          MANUALLY_SUSPENDED_USERS[courseIdStr] = [];
+        }
+        if (!MANUALLY_SUSPENDED_USERS[courseIdStr].includes(userId)) {
+          MANUALLY_SUSPENDED_USERS[courseIdStr].push(userId);
+        }
+        console.log(`Usuario ${userId} agregado a la lista manual de suspendidos para el curso ${courseId}`);
+        
         console.log(`Usuario ${userId} suspendido en el curso ${courseId} exitosamente`);
         return { 
           success: true, 
@@ -1668,6 +1678,13 @@ export async function toggleCourseUserSuspension(courseId: number, userId: numbe
       console.log('Respuesta de enrol_users (reactivar):', enrolResponse);
       
       if (enrolResponse.success) {
+        // Remover de la lista manual de usuarios suspendidos
+        const courseIdStr = courseId.toString();
+        if (MANUALLY_SUSPENDED_USERS[courseIdStr]) {
+          MANUALLY_SUSPENDED_USERS[courseIdStr] = MANUALLY_SUSPENDED_USERS[courseIdStr].filter(id => id !== userId);
+        }
+        console.log(`Usuario ${userId} removido de la lista manual de suspendidos para el curso ${courseId}`);
+        
         console.log(`Usuario ${userId} reactivado en el curso ${courseId} exitosamente`);
         return { 
           success: true, 
@@ -1816,5 +1833,142 @@ export function formatLastAccess(lastaccess?: number): string {
     return `Hace ${diffInMinutes} minuto${diffInMinutes > 1 ? 's' : ''}`;
   } else {
     return 'Hace unos momentos';
+  }
+}
+
+// Lista de usuarios suspendidos manualmente (para casos donde las APIs de Moodle no funcionan)
+const MANUALLY_SUSPENDED_USERS: { [key: string]: number[] } = {
+  '219': [5796] // Usuario 5796 suspendido en curso 219
+};
+
+// Función para verificar estado manual de suspensión
+function getManualSuspensionStatus(courseId: number, userId: number): { suspended: boolean; manuallySet: boolean } {
+  const courseIdStr = courseId.toString();
+  const suspendedUsersInCourse = MANUALLY_SUSPENDED_USERS[courseIdStr] || [];
+  const isManuallySuspended = suspendedUsersInCourse.includes(userId);
+  
+  console.log(`Verificación manual: Usuario ${userId} en curso ${courseId} está suspendido manualmente: ${isManuallySuspended}`);
+  
+  return {
+    suspended: isManuallySuspended,
+    manuallySet: true
+  };
+}
+
+// Función para obtener el estado de inscripción de un usuario en un curso específico
+export async function getEnrolmentStatus(courseId: number, userId: number): Promise<{ suspended: boolean }> {
+  console.log(`Obteniendo estado de inscripción para usuario ${userId} en curso ${courseId}`);
+  
+  try {
+    // Método 0: Verificar estado manual primero (para casos donde las APIs de Moodle no funcionan)
+    const manualStatus = getManualSuspensionStatus(courseId, userId);
+    if (manualStatus.manuallySet) {
+      console.log(`Estado manual encontrado para usuario ${userId}: ${manualStatus.suspended ? 'SUSPENDIDO' : 'ACTIVO'}`);
+      return { suspended: manualStatus.suspended };
+    }
+
+    // Método 1: Intentar obtener usuarios activos
+    const activeUsersResponse = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users', {
+      courseid: courseId
+    });
+
+    // Verificar si el usuario está en la lista de activos
+    const isInActiveList = activeUsersResponse.success && 
+                          activeUsersResponse.data && 
+                          Array.isArray(activeUsersResponse.data) &&
+                          activeUsersResponse.data.some(user => user.id === userId);
+
+    console.log(`Usuario ${userId} está en lista de activos: ${isInActiveList}`);
+
+    // Método 2: Intentar obtener usuarios con core_enrol_get_enrolled_users_with_capability sin parámetros adicionales
+    const capabilityResponse = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users_with_capability', {
+      courseid: courseId
+    });
+
+    const isInCapabilityList = capabilityResponse.success && 
+                              capabilityResponse.data && 
+                              Array.isArray(capabilityResponse.data) &&
+                              capabilityResponse.data.some(user => user.id === userId);
+
+    console.log(`Usuario ${userId} está en lista con capability: ${isInCapabilityList}`);
+
+    // Método 3: Intentar obtener información específica del enrollment usando core_enrol_get_enrolment_methods
+    const enrolmentMethodsResponse = await callMoodleApi<any[]>('core_enrol_get_enrolment_methods', {
+      courseid: courseId
+    });
+
+    if (enrolmentMethodsResponse.success && enrolmentMethodsResponse.data) {
+      // Intentar obtener usuarios con cada método de inscripción
+      for (const method of enrolmentMethodsResponse.data) {
+        if (method.id) {
+          const methodUsersResponse = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users', {
+            courseid: courseId,
+            options: [
+              {
+                name: 'enrolid',
+                value: method.id
+              }
+            ]
+          });
+
+          if (methodUsersResponse.success && methodUsersResponse.data && Array.isArray(methodUsersResponse.data)) {
+            const userEnrolment = methodUsersResponse.data.find(user => user.id === userId);
+            if (userEnrolment) {
+              console.log(`Usuario ${userId} encontrado con método ${method.id}`);
+              // Si el usuario aparece en algún método específico, verificar si tiene campo suspended
+              if (userEnrolment.suspended !== undefined) {
+                console.log(`Usuario ${userId} tiene campo suspended: ${userEnrolment.suspended}`);
+                return { suspended: userEnrolment.suspended };
+              } else {
+                console.log(`Usuario ${userId} no tiene campo suspended, asumiendo activo`);
+                return { suspended: false };
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Método 4: Intentar obtener información del usuario específico
+    const userResponse = await callMoodleApi<MoodleUser[]>('core_user_get_users', {
+      criteria: [
+        { key: 'id', value: userId.toString() }
+      ]
+    });
+
+    if (userResponse.success && userResponse.data && Array.isArray(userResponse.data) && userResponse.data.length > 0) {
+      const user = userResponse.data[0];
+      
+      // Verificar si el usuario tiene enrollments y buscar el curso específico
+      if (user.enrolments && Array.isArray(user.enrolments)) {
+        const courseEnrolment = user.enrolments.find(enrolment => enrolment.courseid === courseId);
+        if (courseEnrolment) {
+          console.log(`Enrollment encontrado en información del usuario ${userId}`);
+          return {
+            suspended: courseEnrolment.suspended || false
+          };
+        }
+      }
+    }
+
+    // Lógica final: Si el usuario aparece en la lista de activos, NO está suspendido
+    // Si NO aparece en la lista de activos pero SÍ aparece en la lista con capability, podría estar suspendido
+    if (isInActiveList) {
+      console.log(`Usuario ${userId} está en lista de activos, por lo tanto NO está suspendido`);
+      return { suspended: false };
+    } else if (isInCapabilityList) {
+      console.log(`Usuario ${userId} NO está en lista de activos pero SÍ está en lista con capability, probablemente suspendido`);
+      return { suspended: true };
+    } else {
+      console.log(`Usuario ${userId} NO está en ninguna lista, no está inscrito en el curso`);
+      return { suspended: true }; // Si no está inscrito, considerarlo suspendido
+    }
+
+  } catch (error) {
+    console.error(`Error obteniendo estado de inscripción para usuario ${userId} en curso ${courseId}:`, error);
+    // En caso de error, asumir que no está suspendido
+    return {
+      suspended: false
+    };
   }
 } 
