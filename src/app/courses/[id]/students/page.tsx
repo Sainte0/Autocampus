@@ -1,11 +1,14 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '../../../../components/ui/Button';
+import { Input } from '../../../../components/ui/Input';
+import { Select } from '../../../../components/ui/Select';
 import { useCourseUserSync } from '../../../../hooks/useUserSync';
 import { UserStateNotification } from '../../../../components/UserStateNotification';
+
 // Función auxiliar para formatear la fecha del último acceso
 function formatLastAccess(lastaccess?: number): string {
   if (!lastaccess || lastaccess === 0) {
@@ -50,6 +53,9 @@ interface Course {
   visible: number;
 }
 
+type SortField = 'fullname' | 'lastaccess' | 'suspended' | 'username' | 'email';
+type SortDirection = 'asc' | 'desc';
+
 export default function CourseStudentsPage() {
   const params = useParams();
   const courseId = params.id as string;
@@ -60,9 +66,90 @@ export default function CourseStudentsPage() {
   const [error, setError] = useState('');
   const [serverMessage, setServerMessage] = useState('');
   const [updatingUser, setUpdatingUser] = useState<number | null>(null);
+  
+  // Estados para búsqueda y ordenamiento
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortField, setSortField] = useState<SortField>('fullname');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
   // Hook para sincronización de usuarios del curso
   const { updateCourseUserSuspension, removeUserFromCourse } = useCourseUserSync(parseInt(courseId), students);
+
+  // Función para filtrar estudiantes por búsqueda
+  const filteredStudents = useMemo(() => {
+    if (!searchTerm.trim()) {
+      return students;
+    }
+    
+    const term = searchTerm.toLowerCase().trim();
+    return students.filter(student => 
+      student.firstname.toLowerCase().includes(term) ||
+      student.lastname.toLowerCase().includes(term) ||
+      student.fullname.toLowerCase().includes(term) ||
+      student.username.toLowerCase().includes(term) ||
+      student.email.toLowerCase().includes(term)
+    );
+  }, [students, searchTerm]);
+
+  // Función para ordenar estudiantes
+  const sortedStudents = useMemo(() => {
+    return [...filteredStudents].sort((a, b) => {
+      let aValue: string | number | boolean;
+      let bValue: string | number | boolean;
+      
+      switch (sortField) {
+        case 'fullname':
+          aValue = a.fullname.toLowerCase();
+          bValue = b.fullname.toLowerCase();
+          break;
+        case 'lastaccess':
+          aValue = a.lastaccess || 0;
+          bValue = b.lastaccess || 0;
+          break;
+        case 'suspended':
+          aValue = a.suspended || false;
+          bValue = b.suspended || false;
+          break;
+        case 'username':
+          aValue = a.username.toLowerCase();
+          bValue = b.username.toLowerCase();
+          break;
+        case 'email':
+          aValue = a.email.toLowerCase();
+          bValue = b.email.toLowerCase();
+          break;
+        default:
+          aValue = a.fullname.toLowerCase();
+          bValue = b.fullname.toLowerCase();
+      }
+      
+      if (aValue < bValue) {
+        return sortDirection === 'asc' ? -1 : 1;
+      }
+      if (aValue > bValue) {
+        return sortDirection === 'asc' ? 1 : -1;
+      }
+      return 0;
+    });
+  }, [filteredStudents, sortField, sortDirection]);
+
+  // Función para cambiar el ordenamiento
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  // Función para obtener el ícono de ordenamiento
+  const getSortIcon = (field: SortField) => {
+    if (sortField !== field) {
+      return '↕️';
+    }
+    return sortDirection === 'asc' ? '↑' : '↓';
+  };
 
   const loadCourseAndStudents = useCallback(async () => {
     setLoading(true);
@@ -210,11 +297,14 @@ export default function CourseStudentsPage() {
 
         {/* Acciones */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 mb-6">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                 Alumnos ({students.length})
               </h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Mostrando {sortedStudents.length} de {students.length} estudiantes
+              </p>
             </div>
             <Button
               onClick={loadCourseAndStudents}
@@ -225,7 +315,56 @@ export default function CourseStudentsPage() {
             </Button>
           </div>
           
-          <p className="text-xs text-green-600 dark:text-green-400 mt-2">
+          {/* Búsqueda y Filtros */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Buscar por nombre, apellido, usuario o email
+              </label>
+              <Input
+                type="text"
+                placeholder="Buscar estudiantes..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Ordenar por
+              </label>
+              <Select
+                value={sortField}
+                onChange={(e) => setSortField(e.target.value as SortField)}
+                className="w-full"
+                options={[
+                  { value: 'fullname', label: 'Nombre/Apellido' },
+                  { value: 'lastaccess', label: 'Último Acceso' },
+                  { value: 'suspended', label: 'Estado' },
+                  { value: 'username', label: 'Usuario' },
+                  { value: 'email', label: 'Email' }
+                ]}
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Dirección
+              </label>
+              <Select
+                value={sortDirection}
+                onChange={(e) => setSortDirection(e.target.value as SortDirection)}
+                className="w-full"
+                options={[
+                  { value: 'asc', label: 'Ascendente' },
+                  { value: 'desc', label: 'Descendente' }
+                ]}
+              />
+            </div>
+          </div>
+          
+          <p className="text-xs text-green-600 dark:text-green-400">
             ✅ Suspender: El alumno queda en el curso pero no puede acceder | Eliminar: El alumno se borra completamente del curso
           </p>
         </div>
@@ -258,7 +397,7 @@ export default function CourseStudentsPage() {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md">
             <div className="px-4 sm:px-6 py-4 border-b border-gray-200 dark:border-gray-700">
               <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                Estudiantes del Curso ({students.length})
+                Estudiantes del Curso ({sortedStudents.length})
               </h2>
             </div>
             
@@ -270,20 +409,45 @@ export default function CourseStudentsPage() {
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       ID
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                      Nombre Completo
+                    <th 
+                      className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600"
+                      onClick={() => handleSort('fullname')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Nombre Completo {getSortIcon('fullname')}
+                      </div>
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                      Usuario
+                    <th 
+                      className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600"
+                      onClick={() => handleSort('username')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Usuario {getSortIcon('username')}
+                      </div>
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                      Email
+                    <th 
+                      className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600"
+                      onClick={() => handleSort('email')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Email {getSortIcon('email')}
+                      </div>
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                      Estado
+                    <th 
+                      className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600"
+                      onClick={() => handleSort('suspended')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Estado {getSortIcon('suspended')}
+                      </div>
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                      Último Acceso
+                    <th 
+                      className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600"
+                      onClick={() => handleSort('lastaccess')}
+                    >
+                      <div className="flex items-center gap-1">
+                        Último Acceso {getSortIcon('lastaccess')}
+                      </div>
                     </th>
                     <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                       Acciones
@@ -291,7 +455,7 @@ export default function CourseStudentsPage() {
                   </tr>
                 </thead>
                 <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                  {students.map((student) => (
+                  {sortedStudents.map((student) => (
                     <tr key={student.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                       <td className="px-3 py-4 text-sm text-gray-900 dark:text-white">
                         {student.id}
@@ -353,7 +517,7 @@ export default function CourseStudentsPage() {
             {/* Mobile/Tablet Cards */}
             <div className="lg:hidden">
               <div className="space-y-4 p-4">
-                {students.map((student) => (
+                {sortedStudents.map((student) => (
                   <div key={student.id} className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
                     <div className="flex justify-between items-start mb-3">
                       <div className="flex-1">
@@ -419,10 +583,10 @@ export default function CourseStudentsPage() {
         )}
 
         {/* No Students */}
-        {students.length === 0 && !loading && !error && (
+        {sortedStudents.length === 0 && !loading && !error && (
           <div className="text-center py-8">
             <p className="text-gray-500 dark:text-gray-400">
-              No hay alumnos inscritos en este curso.
+              {searchTerm.trim() ? 'No se encontraron estudiantes que coincidan con la búsqueda.' : 'No hay alumnos inscritos en este curso.'}
             </p>
           </div>
         )}
