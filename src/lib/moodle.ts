@@ -26,6 +26,9 @@ interface EnrolmentMethod {
 }
 
 export async function callMoodleApi<T>(wsfunction: string, params: MoodleApiParams = {}): Promise<ApiResponse<T>> {
+  console.log(`\n🚀 [MOODLE API] Llamando función: ${wsfunction}`);
+  console.log(`📦 [MOODLE API] Parámetros:`, JSON.stringify(params, null, 2));
+  
   const queryParams = new URLSearchParams({
     wstoken: MOODLE_TOKEN || '',
     wsfunction,
@@ -102,7 +105,54 @@ export async function callMoodleApi<T>(wsfunction: string, params: MoodleApiPara
     }
 
     const data = await response.json();
-    console.log('Moodle response:', data);
+    console.log(`📨 [MOODLE API] Respuesta recibida para ${wsfunction}:`, typeof data);
+    
+    // Debug más detallado para core_enrol_get_enrolled_users
+    if (wsfunction === 'core_enrol_get_enrolled_users') {
+      console.log('🔍 [MOODLE DEBUG] Analizando respuesta de core_enrol_get_enrolled_users:');
+      console.log('🔍 [MOODLE DEBUG] Tipo de respuesta:', typeof data);
+      console.log('🔍 [MOODLE DEBUG] Es array?:', Array.isArray(data));
+      console.log('🔍 [MOODLE DEBUG] Longitud (si es array):', Array.isArray(data) ? data.length : 'N/A');
+      
+      if (Array.isArray(data)) {
+        console.log('🔍 [MOODLE DEBUG] Primeros 3 usuarios:', data.slice(0, 3));
+        
+        // Buscar específicamente a Tuttolomondo
+        const tuttolomondo = data.find((user: any) => 
+          user.id === 4949 || 
+          user.username === '33128569' || 
+          (user.firstname === 'Aldo Adrian' && user.lastname === 'Tuttolomondo')
+        );
+        
+        if (tuttolomondo) {
+          console.log('🎯 [MOODLE DEBUG] TUTTOLOMONDO ENCONTRADO:');
+          console.log('🎯 [MOODLE DEBUG] Objeto completo:', JSON.stringify(tuttolomondo, null, 2));
+          console.log('🎯 [MOODLE DEBUG] Propiedades del objeto:', Object.keys(tuttolomondo));
+          console.log('🎯 [MOODLE DEBUG] Valor de suspended:', tuttolomondo.suspended);
+          console.log('🎯 [MOODLE DEBUG] Tipo de suspended:', typeof tuttolomondo.suspended);
+        } else {
+          console.log('❌ [MOODLE DEBUG] Tuttolomondo NO encontrado en la respuesta');
+        }
+        
+        // Mostrar estructura de un usuario ejemplo
+        if (data.length > 0) {
+          console.log('📋 [MOODLE DEBUG] Estructura de usuario ejemplo (primer usuario):');
+          console.log('📋 [MOODLE DEBUG] Propiedades:', Object.keys(data[0]));
+          console.log('📋 [MOODLE DEBUG] Usuario ejemplo:', JSON.stringify(data[0], null, 2));
+        }
+      } else {
+        console.log('🔍 [MOODLE DEBUG] Respuesta completa (no es array):', JSON.stringify(data, null, 2));
+      }
+    }
+    
+    // Mantener el debug original pero más conciso
+    if (wsfunction === 'core_enrol_get_enrolled_users' && Array.isArray(data)) {
+      data.forEach((user, index) => {
+        if (user && user.id) {
+          console.log(`👤 [MOODLE DEBUG] Usuario ${user.id} (${user.username || 'sin username'}): suspended=${user.suspended} (tipo: ${typeof user.suspended})`);
+        }
+      });
+    }
 
     // Verificar si la respuesta es null o undefined
     if (data === null || data === undefined) {
@@ -855,19 +905,55 @@ export async function getCourseParticipants(courseId: number): Promise<ApiRespon
 
 // Función específica para obtener estudiantes inscritos en un curso
 export async function getEnrolledStudents(courseId: number): Promise<ApiResponse<MoodleUser[]>> {
-  console.log(`Obteniendo estudiantes INSCRITOS en el curso ${courseId}`);
+  console.log(`\n🎓 [getEnrolledStudents] INICIO - Obteniendo estudiantes INSCRITOS en el curso ${courseId}`);
   
   try {
     // Método 1: core_enrol_get_enrolled_users (API principal para enrollment)
-    console.log('Método 1: core_enrol_get_enrolled_users...');
+    console.log('📚 [getEnrolledStudents] Método 1: Llamando core_enrol_get_enrolled_users...');
     let response = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users', {
       courseid: courseId
     });
 
-    console.log('Respuesta de core_enrol_get_enrolled_users:', response);
+    console.log('📊 [getEnrolledStudents] Respuesta recibida:', {
+      success: response.success,
+      dataLength: response.data ? response.data.length : 0,
+      error: response.error
+    });
+    
+    // Debug detallado de la respuesta
+    if (response.success && response.data && Array.isArray(response.data)) {
+      console.log('🔍 [ENROLLED DEBUG] Analizando respuesta detallada de core_enrol_get_enrolled_users:');
+      console.log(`🔍 [ENROLLED DEBUG] Total usuarios: ${response.data.length}`);
+      
+      // Buscar específicamente a Tuttolomondo en la respuesta
+      const tuttolomondo = response.data.find(user => 
+        user.id === 4949 || 
+        user.username === '33128569' ||
+        (user.firstname === 'Aldo Adrian' && user.lastname === 'Tuttolomondo')
+      );
+      
+      if (tuttolomondo) {
+        console.log('🎯 [ENROLLED DEBUG] TUTTOLOMONDO encontrado en la respuesta:');
+        console.log('🎯 [ENROLLED DEBUG] ID:', tuttolomondo.id);
+        console.log('🎯 [ENROLLED DEBUG] Username:', tuttolomondo.username);
+        console.log('🎯 [ENROLLED DEBUG] Suspended:', tuttolomondo.suspended);
+        console.log('🎯 [ENROLLED DEBUG] Tipo suspended:', typeof tuttolomondo.suspended);
+        console.log('🎯 [ENROLLED DEBUG] Objeto completo:', JSON.stringify(tuttolomondo, null, 2));
+      } else {
+        console.log('❌ [ENROLLED DEBUG] Tuttolomondo NO está en la lista de estudiantes inscritos');
+      }
+      
+      // Mostrar algunos usuarios de ejemplo
+      console.log('📋 [ENROLLED DEBUG] Primeros 3 usuarios con su estado suspended:');
+      response.data.slice(0, 3).forEach((user, index) => {
+        if (user && user.id) {
+          console.log(`   ${index + 1}. Usuario ${user.id} (${user.username}): suspended=${user.suspended} (tipo: ${typeof user.suspended})`);
+        }
+      });
+    }
 
     if (response.success && response.data && response.data.length > 0) {
-      console.log(`Encontrados ${response.data.length} estudiantes inscritos con core_enrol_get_enrolled_users`);
+      console.log(`✅ [getEnrolledStudents] Éxito: Encontrados ${response.data.length} estudiantes inscritos con core_enrol_get_enrolled_users`);
       return response;
     }
 
