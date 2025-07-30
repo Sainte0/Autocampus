@@ -32,23 +32,33 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    console.log(`=== INICIO: Solicitando estudiantes INSCRITOS para el curso ${courseIdNum} ===`);
+    console.log(`\n🌐 [API ROUTE] === INICIO: Solicitando estudiantes INSCRITOS para el curso ${courseIdNum} ===`);
     
     // Intentar PRIMERO con la función específica para estudiantes inscritos
     let response = await getEnrolledStudents(courseIdNum);
     let methodUsed = 'getEnrolledStudents';
 
+    console.log(`🌐 [API ROUTE] Respuesta de getEnrolledStudents:`, {
+      success: response.success,
+      dataLength: response.data?.length || 0,
+      error: response.error
+    });
+
     // Si no funciona, usar la función temporal
     if (!response.success || !response.data || response.data.length === 0) {
-      console.log('Función de estudiantes inscritos falló, usando método temporal...');
+      console.log('🌐 [API ROUTE] Función de estudiantes inscritos falló, usando método temporal...');
       response = await getCourseStudentsTemporary(courseIdNum);
       methodUsed = 'getCourseStudentsTemporary';
     }
 
-    console.log(`=== RESPUESTA COMPLETA:`, response);
+    console.log(`🌐 [API ROUTE] === RESPUESTA COMPLETA:`, {
+      success: response.success,
+      dataLength: response.data?.length || 0,
+      methodUsed: methodUsed
+    });
 
     if (!response.success) {
-      console.error('Error obteniendo estudiantes:', response.error);
+      console.error('🌐 [API ROUTE] Error obteniendo estudiantes:', response.error);
       return NextResponse.json(
         { 
           error: 'Error al obtener estudiantes del curso',
@@ -60,7 +70,25 @@ export async function GET(request: NextRequest) {
     }
 
     let users = response.data || [];
-    console.log(`Usuarios obtenidos antes del filtrado: ${users.length}`);
+    console.log(`🌐 [API ROUTE] Usuarios obtenidos antes del filtrado: ${users.length}`);
+    
+    // Buscar específicamente a Tuttolomondo antes del filtrado
+    const tuttolomondoBeforeFilter = users.find((user: MoodleUser) => 
+      user.id === 4949 || 
+      user.username === '33128569' ||
+      (user.firstname === 'Aldo Adrian' && user.lastname === 'Tuttolomondo')
+    );
+    
+    if (tuttolomondoBeforeFilter) {
+      console.log('🎯 [API ROUTE] TUTTOLOMONDO antes del filtrado:');
+      console.log('🎯 [API ROUTE] - ID:', tuttolomondoBeforeFilter.id);
+      console.log('🎯 [API ROUTE] - Username:', tuttolomondoBeforeFilter.username);
+      console.log('🎯 [API ROUTE] - Suspended (original):', tuttolomondoBeforeFilter.suspended);
+      console.log('🎯 [API ROUTE] - Tipo suspended:', typeof tuttolomondoBeforeFilter.suspended);
+      console.log('🎯 [API ROUTE] - Objeto completo:', JSON.stringify(tuttolomondoBeforeFilter, null, 2));
+    } else {
+      console.log('❌ [API ROUTE] Tuttolomondo NO encontrado antes del filtrado');
+    }
     
     // Filtrar solo estudiantes válidos
     if (Array.isArray(users)) {
@@ -98,7 +126,7 @@ export async function GET(request: NextRequest) {
         console.log(`Usuario válido encontrado: ${user.username} - ${user.firstname} ${user.lastname}`);
         return true;
       });
-      console.log(`Usuarios después del filtrado: ${users.length} (filtrados: ${beforeFilter - users.length})`);
+      console.log(`🌐 [API ROUTE] Usuarios después del filtrado: ${users.length} (filtrados: ${beforeFilter - users.length})`);
     }
 
     // Obtener el estado de suspensión para cada usuario
@@ -111,7 +139,7 @@ export async function GET(request: NextRequest) {
             suspended: suspensionStatus.suspended || false
           };
         } catch (error) {
-          console.error(`Error obteniendo estado de suspensión para usuario ${user.id}:`, error);
+          console.error(`🌐 [API ROUTE] Error obteniendo estado de suspensión para usuario ${user.id}:`, error);
           return {
             ...user,
             suspended: false // Por defecto, asumir que no está suspendido
@@ -132,7 +160,7 @@ export async function GET(request: NextRequest) {
       suspended: user.suspended
     }));
 
-    console.log(`=== FINAL: Encontrados ${formattedStudents.length} estudiantes para el curso ${courseIdNum} ===`);
+    console.log(`🌐 [API ROUTE] === FINAL: Encontrados ${formattedStudents.length} estudiantes para el curso ${courseIdNum} ===`);
 
     // Crear mensaje informativo
     const message = `Mostrando ${formattedStudents.length} estudiantes del curso ${courseIdNum}.`;
@@ -154,7 +182,7 @@ export async function GET(request: NextRequest) {
       }
     });
   } catch (error) {
-    console.error('Error getting course students:', error);
+    console.error('🌐 [API ROUTE] Error getting course students:', error);
     return NextResponse.json(
       { 
         error: 'Error interno del servidor',
