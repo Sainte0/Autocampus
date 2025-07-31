@@ -1626,7 +1626,7 @@ export async function toggleUserSuspension(userId: number, suspend: boolean) {
 }
 
 // Función para suspender o reactivar un usuario en un curso específico (sin eliminar)
-export async function toggleCourseUserSuspension(courseId: number, userId: number, suspend: boolean) {
+export async function toggleCourseUserSuspension(courseId: number, userId: number, suspend: boolean, performedBy?: string) {
   console.log(`${suspend ? 'Suspender' : 'Reactivar'} usuario ${userId} en curso ${courseId} (sin eliminar)`);
   
   try {
@@ -1649,7 +1649,14 @@ export async function toggleCourseUserSuspension(courseId: number, userId: numbe
       console.log('Respuesta de enrol_users (suspender):', enrolResponse);
       
       if (enrolResponse.success) {
-        // Actualizar la lista manual de usuarios suspendidos
+        // Guardar el estado de suspensión en la base de datos
+        const dbResult = await saveSuspensionStatus(userId, courseId, true, performedBy);
+        if (!dbResult.success) {
+          console.error('Error guardando estado de suspensión en BD:', dbResult.error);
+          // Continuar aunque falle la BD, ya que la suspensión en Moodle fue exitosa
+        }
+        
+        // Actualizar la lista manual de usuarios suspendidos (mantener compatibilidad)
         const courseIdStr = courseId.toString();
         if (!MANUALLY_SUSPENDED_USERS[courseIdStr]) {
           MANUALLY_SUSPENDED_USERS[courseIdStr] = [];
@@ -1686,7 +1693,14 @@ export async function toggleCourseUserSuspension(courseId: number, userId: numbe
       console.log('Respuesta de enrol_users (reactivar):', enrolResponse);
       
       if (enrolResponse.success) {
-        // Remover de la lista manual de usuarios suspendidos
+        // Guardar el estado de reactivación en la base de datos
+        const dbResult = await saveSuspensionStatus(userId, courseId, false, performedBy);
+        if (!dbResult.success) {
+          console.error('Error guardando estado de reactivación en BD:', dbResult.error);
+          // Continuar aunque falle la BD, ya que la reactivación en Moodle fue exitosa
+        }
+        
+        // Remover de la lista manual de usuarios suspendidos (mantener compatibilidad)
         const courseIdStr = courseId.toString();
         if (MANUALLY_SUSPENDED_USERS[courseIdStr]) {
           MANUALLY_SUSPENDED_USERS[courseIdStr] = MANUALLY_SUSPENDED_USERS[courseIdStr].filter(id => id !== userId);
@@ -1729,6 +1743,19 @@ export async function removeUserFromCourse(courseId: number, userId: number) {
     console.log('Respuesta de unenrol_users:', response);
     
     if (response.success) {
+      // Eliminar el estado de suspensión de la base de datos
+      const dbResult = await removeSuspensionStatusFromDB(userId, courseId);
+      if (!dbResult.success) {
+        console.error('Error eliminando estado de suspensión de BD:', dbResult.error);
+        // Continuar aunque falle la BD, ya que la eliminación en Moodle fue exitosa
+      }
+      
+      // Remover de la lista manual de usuarios suspendidos (mantener compatibilidad)
+      const courseIdStr = courseId.toString();
+      if (MANUALLY_SUSPENDED_USERS[courseIdStr]) {
+        MANUALLY_SUSPENDED_USERS[courseIdStr] = MANUALLY_SUSPENDED_USERS[courseIdStr].filter(id => id !== userId);
+      }
+      
       console.log(`Usuario ${userId} eliminado del curso ${courseId} exitosamente`);
       return { success: true, message: `Usuario eliminado del curso exitosamente` };
     } else {
@@ -1868,7 +1895,16 @@ export async function getEnrolmentStatus(courseId: number, userId: number): Prom
   console.log(`Obteniendo estado de inscripción para usuario ${userId} en curso ${courseId}`);
   
   try {
-    // Método 0: Verificar estado manual primero (para casos donde las APIs de Moodle no funcionan)
+    // Método 0: Verificar estado en la base de datos primero (fuente de verdad principal)
+    const dbStatus = await getSuspensionStatusFromDB(userId, courseId);
+    console.log(`Verificación en BD para usuario ${userId}: suspended=${dbStatus.suspended}, found=${dbStatus.found}`);
+    if (dbStatus.found) {
+      console.log(`Estado en BD encontrado para usuario ${userId}: ${dbStatus.suspended ? 'SUSPENDIDO' : 'ACTIVO'}`);
+      return { suspended: dbStatus.suspended };
+    }
+    console.log(`No hay estado en BD para usuario ${userId}, continuando con verificación manual...`);
+    
+    // Método 1: Verificar estado manual (para casos donde las APIs de Moodle no funcionan)
     const manualStatus = getManualSuspensionStatus(courseId, userId);
     if (manualStatus.manuallySet) {
       console.log(`Estado manual encontrado para usuario ${userId}: ${manualStatus.suspended ? 'SUSPENDIDO' : 'ACTIVO'}`);
@@ -1980,3 +2016,99 @@ export async function getEnrolmentStatus(courseId: number, userId: number): Prom
     };
   }
 } 
+
+// ============================================================================
+// FUNCIONES PARA GESTIONAR EL ESTADO DE SUSPENSIÓN EN LA BASE DE DATOS
+// ============================================================================
+
+// Importación dinámica para evitar problemas en el lado del cliente
+async function getSuspensionDBFunctions() {
+  const { 
+    saveSuspensionStatus, 
+    getSuspensionStatusFromDB, 
+    getSuspendedUsersFromDB, 
+    getAllSuspensionStatusFromDB, 
+    removeSuspensionStatusFromDB 
+  } = await import('./suspension-db');
+  
+  return {
+    saveSuspensionStatus,
+    getSuspensionStatusFromDB,
+    getSuspendedUsersFromDB,
+    getAllSuspensionStatusFromDB,
+    removeSuspensionStatusFromDB
+  };
+}
+
+// Función para guardar o actualizar el estado de suspensión en la base de datos
+export async function saveSuspensionStatus(
+  userId: number, 
+  courseId: number, 
+  suspended: boolean, 
+  performedBy?: string,
+  reason?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { saveSuspensionStatus: saveStatus } = await getSuspensionDBFunctions();
+    return await saveStatus(userId, courseId, suspended, performedBy, reason);
+  } catch (error) {
+    console.error('Error en saveSuspensionStatus:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Error desconocido al guardar en BD' 
+    };
+  }
+}
+
+// Función para obtener el estado de suspensión desde la base de datos
+export async function getSuspensionStatusFromDB(
+  userId: number, 
+  courseId: number
+): Promise<{ suspended: boolean; found: boolean; data?: unknown }> {
+  try {
+    const { getSuspensionStatusFromDB: getStatus } = await getSuspensionDBFunctions();
+    return await getStatus(userId, courseId);
+  } catch (error) {
+    console.error('Error en getSuspensionStatusFromDB:', error);
+    return { suspended: false, found: false };
+  }
+}
+
+// Función para obtener todos los usuarios suspendidos de un curso desde la base de datos
+export async function getSuspendedUsersFromDB(courseId: number): Promise<number[]> {
+  try {
+    const { getSuspendedUsersFromDB: getSuspendedUsers } = await getSuspensionDBFunctions();
+    return await getSuspendedUsers(courseId);
+  } catch (error) {
+    console.error('Error en getSuspendedUsersFromDB:', error);
+    return [];
+  }
+}
+
+// Función para obtener todos los estados de suspensión de un curso desde la base de datos
+export async function getAllSuspensionStatusFromDB(courseId: number): Promise<unknown[]> {
+  try {
+    const { getAllSuspensionStatusFromDB: getAllStatus } = await getSuspensionDBFunctions();
+    return await getAllStatus(courseId);
+  } catch (error) {
+    console.error('Error en getAllSuspensionStatusFromDB:', error);
+    return [];
+  }
+}
+
+// Función para eliminar el registro de suspensión de la base de datos (cuando se elimina un usuario del curso)
+export async function removeSuspensionStatusFromDB(
+  userId: number, 
+  courseId: number
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { removeSuspensionStatusFromDB: removeStatus } = await getSuspensionDBFunctions();
+    return await removeStatus(userId, courseId);
+  } catch (error) {
+    console.error('Error en removeSuspensionStatusFromDB:', error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Error desconocido al eliminar de BD' 
+    };
+  }
+}

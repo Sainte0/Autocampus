@@ -1,5 +1,6 @@
 import { useEffect, useCallback } from 'react';
 import { useUserState } from '../contexts/UserStateContext';
+import { useAuth } from '../contexts/AuthContext';
 
 interface User {
   id: number;
@@ -13,6 +14,7 @@ interface User {
 
 export function useUserSync(users: User[]) {
   const { updateUserState, syncUserStates, getSyncedUsers } = useUserState();
+  const { token } = useAuth();
 
   // Función para actualizar el estado global de un usuario
   const updateUserSuspension = useCallback(async (userId: number, currentSuspended: boolean) => {
@@ -21,6 +23,7 @@ export function useUserSync(users: User[]) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` }),
         },
         body: JSON.stringify({
           userId: userId,
@@ -41,7 +44,7 @@ export function useUserSync(users: User[]) {
       console.error('Error toggling user suspension:', err);
       return { success: false, error: 'Error al actualizar el usuario' };
     }
-  }, [updateUserState]);
+  }, [updateUserState, token]);
 
   // Sincronizar usuarios con el contexto cuando cambian
   useEffect(() => {
@@ -59,6 +62,7 @@ export function useUserSync(users: User[]) {
 // Hook específico para sincronización de usuarios en cursos
 export function useCourseUserSync(courseId: number, users: User[]) {
   const { updateCourseUserState, syncCourseUserStates, getSyncedCourseUsers } = useUserState();
+  const { token } = useAuth();
 
   // Función para actualizar el estado de un usuario en el curso
   const updateCourseUserSuspension = useCallback(async (userId: number, currentSuspended: boolean) => {
@@ -67,6 +71,7 @@ export function useCourseUserSync(courseId: number, users: User[]) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` }),
         },
         body: JSON.stringify({
           userId: userId,
@@ -87,7 +92,7 @@ export function useCourseUserSync(courseId: number, users: User[]) {
       console.error('Error toggling course user suspension:', err);
       return { success: false, error: 'Error al actualizar el usuario en el curso' };
     }
-  }, [courseId, updateCourseUserState]);
+  }, [courseId, updateCourseUserState, token]);
 
   // Sincronizar usuarios del curso con el contexto cuando cambian
   useEffect(() => {
@@ -103,6 +108,7 @@ export function useCourseUserSync(courseId: number, users: User[]) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` }),
         },
         body: JSON.stringify({
           userId: userId
@@ -120,7 +126,7 @@ export function useCourseUserSync(courseId: number, users: User[]) {
       console.error('Error removing user from course:', err);
       return { success: false, error: 'Error al eliminar el usuario del curso' };
     }
-  }, [courseId]);
+  }, [courseId, token]);
 
   return {
     updateCourseUserSuspension,

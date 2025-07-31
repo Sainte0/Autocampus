@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { removeUserFromCourse } from '../../../../../lib/moodle';
+import { getAllSuspensionStatusFromDB } from '../../../../../lib/suspension-db';
 import { verifyToken } from '../../../../../lib/jwt';
 
-export async function POST(
+export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
@@ -28,23 +28,22 @@ export async function POST(
 
     const { id } = await params;
     const courseId = parseInt(id);
-    const { userId } = await request.json();
     
-    if (isNaN(courseId) || isNaN(userId)) {
-      return NextResponse.json({ error: 'ID inválido' }, { status: 400 });
+    if (isNaN(courseId)) {
+      return NextResponse.json({ error: 'ID de curso inválido' }, { status: 400 });
     }
     
-    console.log(`Eliminación de usuario: Curso ${courseId}, Usuario ${userId} - Realizada por: ${payload.username}`);
+    // Obtener todos los estados de suspensión del curso desde la base de datos
+    const suspensionStatuses = await getAllSuspensionStatusFromDB(courseId);
     
-    const result = await removeUserFromCourse(courseId, userId);
+    return NextResponse.json({ 
+      success: true, 
+      data: suspensionStatuses,
+      count: suspensionStatuses.length
+    });
     
-    if (result.success) {
-      return NextResponse.json({ success: true, message: result.message });
-    } else {
-      return NextResponse.json({ error: result.error || 'Error al eliminar usuario del curso' }, { status: 500 });
-    }
   } catch (error) {
-    console.error('Error en remove-user:', error);
+    console.error('Error obteniendo estados de suspensión:', error);
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
   }
 } 
