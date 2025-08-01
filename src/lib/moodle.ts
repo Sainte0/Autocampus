@@ -62,6 +62,21 @@ export async function callMoodleApi<T>(wsfunction: string, params: MoodleApiPara
         }
       });
     });
+  } else if (params.criteria && Array.isArray(params.criteria)) {
+    // Para core_user_get_users con criteria
+    console.log('Formateando parámetros de criteria:', params.criteria);
+    params.criteria.forEach((criterion, index) => {
+      if (typeof criterion === 'object' && criterion !== null) {
+        Object.entries(criterion).forEach(([key, value]) => {
+          if (value !== undefined && value !== null) {
+            const paramName = `criteria[${index}][${key}]`;
+            const paramValue = String(value);
+            console.log(`Agregando parámetro de criteria: ${paramName} = ${paramValue}`);
+            body.append(paramName, paramValue);
+          }
+        });
+      }
+    });
   } else {
     // Para otros parámetros como field, values, etc.
     Object.entries(params).forEach(([key, value]) => {
@@ -79,19 +94,12 @@ export async function callMoodleApi<T>(wsfunction: string, params: MoodleApiPara
     });
   }
 
-  console.log('URL:', `${MOODLE_API_URL}?${queryParams}`);
-  console.log('Body:', body.toString());
-  console.log('Headers:', { 'Content-Type': 'application/x-www-form-urlencoded' });
-
   try {
     const response = await fetch(`${MOODLE_API_URL}?${queryParams}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
     });
-
-    console.log('Response status:', response.status);
-    console.log('Response headers:', Object.fromEntries(response.headers.entries()));
 
     if (!response.ok) {
       console.error('HTTP Error:', response.status, response.statusText);
@@ -102,7 +110,6 @@ export async function callMoodleApi<T>(wsfunction: string, params: MoodleApiPara
     }
 
     const data = await response.json();
-    console.log('Moodle response:', data);
 
     // Verificar si la respuesta es null o undefined
     if (data === null || data === undefined) {
@@ -659,12 +666,7 @@ export async function getCourseStudents(courseId: number): Promise<ApiResponse<M
     // Método 1: Intentar con core_enrol_get_enrolled_users (API principal)
     console.log('Método 1: Intentando con core_enrol_get_enrolled_users...');
     let response = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users', {
-      courseid: courseId,
-      options: [
-        { name: 'withcapability', value: 'moodle/course:view' },
-        { name: 'groupid', value: 0 },
-        { name: 'onlyactive', value: false }
-      ]
+      courseid: courseId
     });
 
     console.log('Respuesta de core_enrol_get_enrolled_users:', response);
@@ -689,11 +691,10 @@ export async function getCourseStudents(courseId: number): Promise<ApiResponse<M
       console.log('Error en core_enrol_get_enrolled_users:', response.error);
     }
 
-    // Método 2: Intentar con core_enrol_get_enrolled_users_with_capability
-    console.log('Método 2: Intentando con core_enrol_get_enrolled_users_with_capability...');
-    response = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users_with_capability', {
-      courselimit: 1,
-      courseids: [courseId],
+    // Método 2: Intentar con core_enrol_get_enrolled_users con opciones específicas
+    console.log('Método 2: Intentando con core_enrol_get_enrolled_users con opciones...');
+    response = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users', {
+      courseid: courseId,
       options: [
         { name: 'withcapability', value: 'moodle/course:view' },
         { name: 'groupid', value: 0 },
@@ -701,10 +702,33 @@ export async function getCourseStudents(courseId: number): Promise<ApiResponse<M
       ]
     });
 
+    console.log('Respuesta de core_enrol_get_enrolled_users con opciones:', response);
+
+    if (response.success && response.data && response.data.length > 0) {
+      const processedStudents = response.data.map(user => ({
+        ...user,
+        suspended: user.suspended || 
+                  (user.enrolments && user.enrolments.some((enrol: Enrolment) => enrol.suspended)) ||
+                  false
+      }));
+      
+      console.log(`Encontrados ${processedStudents.length} estudiantes con core_enrol_get_enrolled_users con opciones`);
+      return {
+        success: true,
+        data: processedStudents
+      };
+    }
+
+    // Método 3: Intentar con core_enrol_get_enrolled_users_with_capability
+    console.log('Método 3: Intentando con core_enrol_get_enrolled_users_with_capability...');
+    response = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users_with_capability', {
+      courselimit: 1,
+      courseids: [courseId]
+    });
+
     console.log('Respuesta de core_enrol_get_enrolled_users_with_capability:', response);
 
     if (response.success && response.data && response.data.length > 0) {
-      // Procesar los datos para detectar suspensión específica del curso
       const processedStudents = response.data.map(user => ({
         ...user,
         suspended: user.suspended || 
@@ -717,25 +741,6 @@ export async function getCourseStudents(courseId: number): Promise<ApiResponse<M
         success: true,
         data: processedStudents
       };
-    }
-
-    if (!response.success) {
-      console.log('Error en core_enrol_get_enrolled_users_with_capability:', response.error);
-    }
-
-    // Método 3: Intentar con core_user_search_identity como fallback
-    console.log('Método 3: Intentando con core_user_search_identity...');
-    response = await callMoodleApi<MoodleUser[]>('core_user_search_identity', {
-      query: '',
-      limitfrom: 0,
-      limitnum: 100
-    });
-
-    console.log('Respuesta de core_user_search_identity:', response);
-
-    if (response.success && response.data && response.data.length > 0) {
-      console.log(`Encontrados ${response.data.length} usuarios con core_user_search_identity (fallback)`);
-      return response;
     }
 
     // Método 4: Intentar con core_user_get_users como último recurso
@@ -1064,60 +1069,11 @@ export async function getCourseStudentsTemporary(courseId: number): Promise<ApiR
 } 
 
 // Función de prueba para diagnosticar core_user_get_users
-export async function testCoreUserGetUsers(searchTerm: string) {
-  console.log(`=== PRUEBA DE CORE_USER_GET_USERS ===`);
-  console.log(`Término de búsqueda: ${searchTerm}`);
-  
-  try {
-    // Prueba 1: Solo firstname
-    console.log('\n--- Prueba 1: Solo firstname ---');
-    const response1 = await callMoodleApi<MoodleUser[]>('core_user_get_users', {
-      criteria: [{ key: 'firstname', value: searchTerm }]
-    });
-    console.log('Respuesta firstname:', JSON.stringify(response1, null, 2));
-    
-    // Prueba 2: Solo lastname
-    console.log('\n--- Prueba 2: Solo lastname ---');
-    const response2 = await callMoodleApi<MoodleUser[]>('core_user_get_users', {
-      criteria: [{ key: 'lastname', value: searchTerm }]
-    });
-    console.log('Respuesta lastname:', JSON.stringify(response2, null, 2));
-    
-    // Prueba 3: Solo email
-    console.log('\n--- Prueba 3: Solo email ---');
-    const response3 = await callMoodleApi<MoodleUser[]>('core_user_get_users', {
-      criteria: [{ key: 'email', value: searchTerm }]
-    });
-    console.log('Respuesta email:', JSON.stringify(response3, null, 2));
-    
-    // Prueba 4: Sin criterios (debería devolver todos los usuarios)
-    console.log('\n--- Prueba 4: Sin criterios ---');
-    const response4 = await callMoodleApi<MoodleUser[]>('core_user_get_users', {});
-    console.log('Respuesta sin criterios:', JSON.stringify(response4, null, 2));
-    
-    return {
-      firstname: response1,
-      lastname: response2,
-      email: response3,
-      all: response4
-    };
-    
-  } catch (error) {
-    console.error('Error en testCoreUserGetUsers:', error);
-    return null;
-  }
-}
+
 
 export async function searchUsersByNamePartial(name: string) {
-  console.log(`Búsqueda de usuarios por nombre: ${name}`);
-  
   try {
     // Usar core_user_get_users para búsqueda parcial por nombre
-    console.log('Enviando request a core_user_get_users con criterios:', [
-      { key: 'firstname', value: name },
-      { key: 'lastname', value: name }
-    ]);
-    
     const response = await callMoodleApi<MoodleUser[]>('core_user_get_users', {
       criteria: [
         { key: 'firstname', value: name },
@@ -1125,21 +1081,9 @@ export async function searchUsersByNamePartial(name: string) {
       ]
     });
     
-    console.log('Respuesta completa de core_user_get_users:', JSON.stringify(response, null, 2));
-    
     // Verificar si la respuesta fue exitosa y tiene datos
     if (response.success && response.data && Array.isArray(response.data) && response.data.length > 0) {
-      console.log(`Encontrados ${response.data.length} usuarios con nombre "${name}"`);
       return { success: true, data: response.data };
-    }
-    
-    // Si no hay datos, verificar si hay error
-    if (!response.success) {
-      console.log('Error en core_user_get_users:', response.error);
-    }
-    
-    if (response.data && Array.isArray(response.data) && response.data.length === 0) {
-      console.log('core_user_get_users devolvió array vacío');
     }
     
     return { 
@@ -1159,11 +1103,8 @@ export async function searchUsersByNamePartial(name: string) {
 }
 
 export async function searchUsersSimple(searchTerm: string) {
-  console.log(`Búsqueda simple optimizada de usuarios con término: ${searchTerm}`);
-  
   try {
     // Método 1: Intentar búsqueda directa por email (más confiable y rápido)
-    console.log('Método 1: Búsqueda directa por email...');
     try {
       const emailResponse = await callMoodleApi<MoodleUser[]>('core_user_get_users_by_field', {
         field: 'email',
@@ -1171,7 +1112,6 @@ export async function searchUsersSimple(searchTerm: string) {
       });
       
       if (emailResponse.success && emailResponse.data && Array.isArray(emailResponse.data) && emailResponse.data.length > 0) {
-        console.log(`Encontrados ${emailResponse.data.length} usuarios por email`);
         
         // Obtener información detallada incluyendo último acceso
         const userIds = emailResponse.data.map(user => user.id);
@@ -1192,12 +1132,11 @@ export async function searchUsersSimple(searchTerm: string) {
         
         return { success: true, data: emailResponse.data };
       }
-    } catch (emailError) {
-      console.log('Error en búsqueda por email:', emailError);
+    } catch {
+      // Continue to next method
     }
     
     // Método 2: Intentar búsqueda directa por username
-    console.log('Método 2: Búsqueda directa por username...');
     try {
       const usernameResponse = await callMoodleApi<MoodleUser[]>('core_user_get_users_by_field', {
         field: 'username',
@@ -1205,7 +1144,6 @@ export async function searchUsersSimple(searchTerm: string) {
       });
       
       if (usernameResponse.success && usernameResponse.data && Array.isArray(usernameResponse.data) && usernameResponse.data.length > 0) {
-        console.log(`Encontrados ${usernameResponse.data.length} usuarios por username`);
         
         // Obtener información detallada incluyendo último acceso
         const userIds = usernameResponse.data.map(user => user.id);
@@ -1226,15 +1164,13 @@ export async function searchUsersSimple(searchTerm: string) {
         
         return { success: true, data: usernameResponse.data };
       }
-    } catch (usernameError) {
-      console.log('Error en búsqueda por username:', usernameError);
+    } catch {
+      // Continue to next method
     }
     
     // Método 3: Búsqueda inteligente por nombre usando rangos estratégicos
-    console.log('Método 3: Búsqueda inteligente por nombre...');
     const nameResults = await searchUsersByNameIntelligent(searchTerm);
     if (nameResults && nameResults.length > 0) {
-      console.log(`Encontrados ${nameResults.length} usuarios por búsqueda inteligente`);
       
       // Obtener información detallada incluyendo último acceso
       const userIds = nameResults.map(user => user.id);
@@ -2109,6 +2045,79 @@ export async function removeSuspensionStatusFromDB(
     return { 
       success: false, 
       error: error instanceof Error ? error.message : 'Error desconocido al eliminar de BD' 
+    };
+  }
+}
+
+// Función simplificada para obtener estudiantes de un curso
+export async function getCourseStudentsSimple(courseId: number): Promise<ApiResponse<MoodleUser[]>> {
+  console.log(`Obteniendo estudiantes para el curso ${courseId} (método simplificado)`);
+  
+  try {
+    // Método 1: Intentar con core_enrol_get_enrolled_users sin opciones
+    console.log('Método simplificado 1: core_enrol_get_enrolled_users sin opciones...');
+    let response = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users', {
+      courseid: courseId
+    });
+
+    console.log('Respuesta de core_enrol_get_enrolled_users (simplificado):', response);
+
+    if (response.success && response.data && response.data.length > 0) {
+      console.log(`Encontrados ${response.data.length} estudiantes con método simplificado 1`);
+      return {
+        success: true,
+        data: response.data
+      };
+    }
+
+    // Método 2: Intentar con core_enrol_get_enrolled_users_with_capability sin opciones
+    console.log('Método simplificado 2: core_enrol_get_enrolled_users_with_capability sin opciones...');
+    response = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users_with_capability', {
+      courselimit: 1,
+      courseids: [courseId]
+    });
+
+    console.log('Respuesta de core_enrol_get_enrolled_users_with_capability (simplificado):', response);
+
+    if (response.success && response.data && response.data.length > 0) {
+      console.log(`Encontrados ${response.data.length} estudiantes con método simplificado 2`);
+      return {
+        success: true,
+        data: response.data
+      };
+    }
+
+    // Método 3: Intentar con core_enrol_get_enrolled_users con parámetros mínimos
+    console.log('Método simplificado 3: core_enrol_get_enrolled_users con parámetros mínimos...');
+    response = await callMoodleApi<MoodleUser[]>('core_enrol_get_enrolled_users', {
+      courseid: courseId,
+      options: [
+        { name: 'onlyactive', value: false }
+      ]
+    });
+
+    console.log('Respuesta de core_enrol_get_enrolled_users con parámetros mínimos:', response);
+
+    if (response.success && response.data && response.data.length > 0) {
+      console.log(`Encontrados ${response.data.length} estudiantes con método simplificado 3`);
+      return {
+        success: true,
+        data: response.data
+      };
+    }
+
+    return {
+      success: false,
+      error: 'No se pudieron obtener estudiantes del curso con métodos simplificados',
+      data: []
+    };
+
+  } catch (error) {
+    console.error('Error obteniendo estudiantes del curso (método simplificado):', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Error al obtener estudiantes del curso',
+      data: []
     };
   }
 }

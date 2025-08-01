@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { searchUsersSimple, searchUsersAdvanced, testCoreUserGetUsers } from '../../../../lib/moodle';
+import { searchUsersSimple, searchUsersAdvanced } from '../../../../lib/moodle';
 
 interface MoodleUser {
   id: number;
@@ -42,11 +42,11 @@ async function handleSearch(request: NextRequest) {
     // Si está en modo de prueba, ejecutar diagnóstico
     if (testMode && searchTerm) {
       console.log('Ejecutando modo de prueba...');
-      const testResults = await testCoreUserGetUsers(searchTerm);
+      const testResults = await searchUsersSimple(searchTerm);
       return NextResponse.json({ 
         testMode: true,
         results: testResults,
-        message: 'Prueba de core_user_get_users completada'
+        message: 'Prueba de búsqueda simple completada'
       });
     }
 
