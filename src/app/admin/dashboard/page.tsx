@@ -168,6 +168,8 @@ export default function DashboardPage() {
     }
   };
 
+
+
   const formatDate = (dateString: string) => {
     try {
       const date = new Date(dateString);
@@ -477,6 +479,7 @@ export default function DashboardPage() {
                 ← Volver
               </Button>
             </div>
+
           </div>
           
           {/* Status Bar */}

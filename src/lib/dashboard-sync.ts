@@ -14,7 +14,7 @@ export async function syncDashboardData(): Promise<{ success: boolean; error?: s
   try {
     await connectDB();
     
-    console.log('Iniciando sincronización de datos del dashboard...');
+
     
     // Actualizar estado a "en progreso"
     // eslint-disable-next-line prefer-const
@@ -32,19 +32,15 @@ export async function syncDashboardData(): Promise<{ success: boolean; error?: s
     await dashboardStats.save();
     
     // 1. Obtener usuarios suspendidos globalmente
-    console.log('Obteniendo usuarios suspendidos globalmente...');
     const globallySuspendedUsers = await getGloballySuspendedUsers();
     
     // 2. Obtener usuarios con múltiples cursos
-    console.log('Obteniendo usuarios con múltiples cursos...');
     const usersWithMultipleCourses = await getUsersWithMultipleCourses();
     
     // 3. Obtener usuarios que nunca ingresaron
-    console.log('Obteniendo usuarios que nunca ingresaron...');
     const neverAccessedUsers = await getNeverAccessedUsers();
     
     // 4. Obtener usuarios suspendidos por curso
-    console.log('Obteniendo usuarios suspendidos por curso...');
     const courseSuspendedUsers = await getCourseSuspendedUsers();
     
     // Actualizar el documento con los datos obtenidos
@@ -59,7 +55,6 @@ export async function syncDashboardData(): Promise<{ success: boolean; error?: s
     
     await dashboardStats.save();
     
-    console.log('Sincronización completada exitosamente');
     return { success: true, stats: dashboardStats };
     
   } catch (error) {
@@ -91,7 +86,7 @@ export async function syncDashboardDataOptimized(): Promise<{ success: boolean; 
   try {
     await connectDB();
     
-    console.log('Iniciando sincronización optimizada de datos del dashboard...');
+
     
     // Actualizar estado a "en progreso"
     // eslint-disable-next-line prefer-const
@@ -128,11 +123,9 @@ export async function syncDashboardDataOptimized(): Promise<{ success: boolean; 
     }
     
     // Procesar usuarios con múltiples cursos
-    console.log('Procesando usuarios con múltiples cursos...');
     const usersWithMultipleCourses = processUsersWithMultipleCourses(coursesWithStudents);
     
     // Procesar usuarios que nunca ingresaron
-    console.log('Procesando usuarios que nunca ingresaron...');
     const neverAccessedUsers = allUsersWithAccess.filter(user => 
       !user.lastaccess || user.lastaccess === 0
     ).map(user => ({
@@ -146,7 +139,6 @@ export async function syncDashboardDataOptimized(): Promise<{ success: boolean; 
     }));
     
          // Procesar usuarios suspendidos por curso
-     console.log('Procesando usuarios suspendidos por curso...');
      const courseSuspendedUsers = await processCourseSuspendedUsers();
     
     // Actualizar el documento con los datos obtenidos
@@ -161,7 +153,6 @@ export async function syncDashboardDataOptimized(): Promise<{ success: boolean; 
     
     await dashboardStats.save();
     
-    console.log('Sincronización optimizada completada exitosamente');
     return { success: true, stats: dashboardStats };
     
   } catch (error) {
@@ -194,7 +185,6 @@ async function getGloballySuspendedUsers(): Promise<IDashboardStats['globallySus
     const response = await getUsersWithStatusFilter(true);
     
     if (!response.success || !response.data) {
-      console.log('No se pudieron obtener usuarios suspendidos globalmente');
       return [];
     }
     
@@ -220,20 +210,15 @@ async function getGloballySuspendedUsers(): Promise<IDashboardStats['globallySus
 // Función optimizada para obtener usuarios suspendidos globalmente
 async function getGloballySuspendedUsersOptimized(): Promise<IDashboardStats['globallySuspendedUsers']> {
   try {
-    console.log('getGloballySuspendedUsersOptimized - Iniciando obtención de usuarios suspendidos...');
-    
     // Obtener todos los usuarios primero
     const allUsers = await getAllUsersWithAccessOptimized();
-    console.log('getGloballySuspendedUsersOptimized - Total usuarios obtenidos:', allUsers.length);
     
     if (allUsers.length === 0) {
-      console.log('getGloballySuspendedUsersOptimized - No se pudieron obtener usuarios');
       return [];
     }
     
     // Filtrar solo los usuarios suspendidos
     const suspendedUsers = allUsers.filter(user => user.suspended === true);
-    console.log('getGloballySuspendedUsersOptimized - Usuarios suspendidos encontrados:', suspendedUsers.length);
     
     return suspendedUsers.map(user => ({
       userId: user.id,
@@ -258,7 +243,6 @@ async function getUsersWithMultipleCourses(): Promise<IDashboardStats['usersWith
     // Obtener todos los cursos
     const coursesResponse = await getCourses();
     if (!coursesResponse.success || !coursesResponse.data) {
-      console.log('No se pudieron obtener cursos');
       return [];
     }
     
@@ -401,7 +385,7 @@ async function getNeverAccessedUsers(): Promise<IDashboardStats['neverAccessedUs
 }
 
 // Función optimizada para obtener todos los cursos con estudiantes en una sola operación
-async function getAllCoursesWithStudentsOptimized(): Promise<Array<{ course: MoodleCourse; students: MoodleUser[] }>> {
+export async function getAllCoursesWithStudentsOptimized(): Promise<Array<{ course: MoodleCourse; students: MoodleUser[] }>> {
   try {
     // Obtener todos los cursos
     const coursesResponse = await getCourses();
@@ -454,7 +438,14 @@ function processUsersWithMultipleCourses(coursesWithStudents: Array<{ course: Mo
   // Mapear usuarios a sus cursos (excluyendo "ASD- Campus ASD")
   for (const { course, students } of coursesWithStudents) {
     // Excluir el curso "ASD- Campus ASD" que no debe contar como un curso real
-    if (course.fullname === 'ASD- Campus ASD') {
+    // Usar múltiples variaciones del nombre para asegurar la exclusión
+    const courseName = course.fullname?.toLowerCase() || '';
+    if (courseName.includes('asd- campus asd') || 
+        courseName.includes('asd campus asd') || 
+        courseName.includes('campus asd') ||
+        course.fullname === 'ASD - Campus ASD' ||
+        course.fullname === 'ASD- Campus ASD') {
+
       continue;
     }
     
@@ -486,6 +477,8 @@ function processUsersWithMultipleCourses(coursesWithStudents: Array<{ course: Mo
       });
     }
   }
+  
+
   
   return usersWithMultipleCourses;
 }
@@ -542,14 +535,12 @@ async function processCourseSuspendedUsers(): Promise<IDashboardStats['courseSus
       const course = courseMap.get(courseId);
       
       if (!course) {
-        console.log(`processCourseSuspendedUsers - Curso ${courseId} no encontrado, saltando...`);
         continue;
       }
       
       const suspendedUsers = status.suspendedUsers.map((suspendedUser: { userId: number; suspendedAt?: Date; suspendedBy?: string; reason?: string }) => {
         const user = userMap.get(suspendedUser.userId);
         if (!user) {
-          console.log(`processCourseSuspendedUsers - Usuario ${suspendedUser.userId} no encontrado`);
           return null;
         }
         
@@ -575,7 +566,6 @@ async function processCourseSuspendedUsers(): Promise<IDashboardStats['courseSus
       }
     }
     
-    console.log(`processCourseSuspendedUsers - Procesados ${courseSuspendedUsers.length} cursos con usuarios suspendidos`);
     return courseSuspendedUsers;
     
   } catch (error) {
@@ -590,7 +580,6 @@ async function getCourseSuspendedUsers(): Promise<IDashboardStats['courseSuspend
     // Obtener todos los cursos
     const coursesResponse = await getCourses();
     if (!coursesResponse.success || !coursesResponse.data) {
-      console.log('No se pudieron obtener cursos');
       return [];
     }
     
