@@ -238,8 +238,7 @@ export default function DashboardPage() {
       // Agregar separador
       allData.push({
         'Tipo': '=== USUARIOS SUSPENDIDOS GLOBALMENTE ===',
-        'ID Usuario': '',
-        'Nombre de Usuario': '',
+        'DNI': '',
         'Nombre': '',
         'Apellido': '',
         'Email': '',
@@ -250,8 +249,7 @@ export default function DashboardPage() {
       stats.globallySuspendedUsers.forEach(user => {
         allData.push({
           'Tipo': 'SUSPENDIDO GLOBAL',
-          'ID Usuario': user.userId,
-          'Nombre de Usuario': user.username,
+          'DNI': user.username,
           'Nombre': user.firstName,
           'Apellido': user.lastName,
           'Email': user.email,
@@ -262,8 +260,7 @@ export default function DashboardPage() {
       // Agregar separador
       allData.push({
         'Tipo': '=== USUARIOS CON MÚLTIPLES CURSOS ===',
-        'ID Usuario': '',
-        'Nombre de Usuario': '',
+        'DNI': '',
         'Nombre': '',
         'Apellido': '',
         'Email': '',
@@ -275,37 +272,38 @@ export default function DashboardPage() {
       stats.usersWithMultipleCourses.forEach(user => {
         allData.push({
           'Tipo': 'MÚLTIPLES CURSOS',
-          'ID Usuario': user.userId,
-          'Nombre de Usuario': user.username,
+          'DNI': user.username,
           'Nombre': user.firstName,
           'Apellido': user.lastName,
           'Email': user.email,
           'Cantidad de Cursos': user.courseCount,
-          'Cursos': user.courses.map((course: { courseShortName?: string; courseName?: string }) => course.courseShortName || course.courseName || '').join('; ')
+          'Cursos': user.courses.map((course: { courseShortName?: string; courseName?: string }) => {
+            const shortName = course.courseShortName || '';
+            const fullName = course.courseName || '';
+            return shortName && fullName ? `${shortName} - ${fullName}` : shortName || fullName;
+          }).join(' | ')
         });
       });
       
       // Agregar separador
       allData.push({
         'Tipo': '=== USUARIOS QUE NUNCA INGRESARON ===',
-        'ID Usuario': '',
-        'Nombre de Usuario': '',
+        'DNI': '',
         'Nombre': '',
         'Apellido': '',
         'Email': '',
-        'Fecha de Creación': ''
+        'Curso Inscripto': ''
       });
       
       // Agregar usuarios que nunca ingresaron
       stats.neverAccessedUsers.forEach(user => {
         allData.push({
           'Tipo': 'NUNCA INGRESÓ',
-          'ID Usuario': user.userId,
-          'Nombre de Usuario': user.username,
+          'DNI': user.username,
           'Nombre': user.firstName,
           'Apellido': user.lastName,
           'Email': user.email,
-          'Fecha de Creación': user.createdAt ? new Date(user.createdAt).toLocaleDateString('es-ES') + ' ' + new Date(user.createdAt).toLocaleTimeString('es-ES') : ''
+          'Curso Inscripto': 'Por determinar'
         });
       });
       
@@ -334,23 +332,24 @@ export default function DashboardPage() {
     
     const columns = Object.keys(data[0]);
     const header = columns.map(column => {
-      const columnMap: { [key: string]: string } = {
-        userId: 'ID Usuario',
-        username: 'Nombre de Usuario',
-        firstName: 'Nombre',
-        lastName: 'Apellido',
-        email: 'Email',
-        suspendedAt: 'Fecha de Suspensión',
-        suspendedBy: 'Suspendido Por',
-        reason: 'Razón',
-        courseCount: 'Cantidad de Cursos',
-        courses: 'Cursos',
-        createdAt: 'Fecha de Creación',
-        lastAccess: 'Último Acceso',
-        courseId: 'ID Curso',
-        courseName: 'Nombre del Curso',
-        courseShortName: 'Nombre Corto del Curso'
-      };
+              const columnMap: { [key: string]: string } = {
+          userId: 'ID Usuario',
+          username: 'DNI',
+          firstName: 'Nombre',
+          lastName: 'Apellido',
+          email: 'Email',
+          suspendedAt: 'Fecha de Suspensión',
+          suspendedBy: 'Suspendido Por',
+          reason: 'Razón',
+          courseCount: 'Cantidad de Cursos',
+          courses: 'Cursos',
+          createdAt: 'Fecha de Creación',
+          lastAccess: 'Último Acceso',
+          courseId: 'ID Curso',
+          courseName: 'Nombre del Curso',
+          courseShortName: 'Nombre Corto del Curso',
+          enrolledCourse: 'Curso Inscripto'
+        };
       return columnMap[column] || column;
     }).join(',');
 
@@ -580,6 +579,7 @@ export default function DashboardPage() {
                       }
                     ]}
                     filename="resumen-general-dashboard"
+                    exportType="overview"
                   />
                 )}
               </div>
@@ -656,6 +656,7 @@ export default function DashboardPage() {
                 <DashboardExport
                   data={globallySuspendedFilters.filteredData}
                   filename="usuarios-suspendidos-globalmente"
+                  exportType="globallySuspended"
                 />
               </div>
               
@@ -733,6 +734,7 @@ export default function DashboardPage() {
                 <DashboardExport
                   data={multipleCoursesFilters.filteredData}
                   filename="usuarios-con-multiples-cursos"
+                  exportType="multipleCourses"
                 />
               </div>
               
@@ -827,6 +829,7 @@ export default function DashboardPage() {
                 <DashboardExport
                   data={neverAccessedFilters.filteredData}
                   filename="usuarios-que-nunca-ingresaron"
+                  exportType="neverAccessed"
                 />
               </div>
               
@@ -904,6 +907,7 @@ export default function DashboardPage() {
                 <DashboardExport
                   data={courseSuspendedFilters.filteredData}
                   filename="usuarios-suspendidos-por-curso"
+                  exportType="courseSuspended"
                 />
               </div>
               
